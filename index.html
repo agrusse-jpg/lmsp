@@ -598,7 +598,7 @@ function series(exId,metric){
 function chartHTML(b){
   const pts=series(b.id,chartMetric);
   const vals=pts.filter(p=>p!=null);
-  if(vals.length<2)return "";
+  if(!vals.length)return `<div class="card chartcard"><h3>${esc(b.name)}</h3><div class="csub">No sessions logged yet — the chart starts with your first one.</div></div>`;
   const W=560,H=130,P=30;
   const mn=Math.min(...vals)*.92||0, mx=Math.max(...vals)*1.05||1;
   const x=i=>P+i*(W-P-8)/Math.max(pts.length-1,1), y=v=>H-14-(v-mn)/((mx-mn)||1)*(H-30);
