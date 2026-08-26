@@ -80,6 +80,8 @@
   .everest .n{font-size:26px; font-weight:800;}
   .ebar{height:9px; background:rgba(255,255,255,.25); border-radius:99px; margin-top:9px; overflow:hidden;}
   .ebar div{height:100%; background:#fff; border-radius:99px;}
+  .chartcard{-webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:pan-y;}
+  .chartcard.lifting{box-shadow:0 8px 24px rgba(20,30,50,.28); opacity:.96; position:relative; z-index:5;}
   .chartcard h3{margin:0 0 2px; font-size:14px;}
   .chartcard .csub{font-size:11.5px; color:var(--muted); margin-bottom:6px;}
   svg.chart{width:100%; height:130px; display:block;}
@@ -598,7 +600,7 @@ function series(exId,metric){
 function chartHTML(b){
   const pts=series(b.id,chartMetric);
   const vals=pts.filter(p=>p!=null);
-  if(!vals.length)return `<div class="card chartcard"><h3>${esc(b.name)}</h3><div class="csub">No sessions logged yet — the chart starts with your first one.</div></div>`;
+  if(!vals.length)return `<div class="card chartcard" data-ex="${b.id}"><h3>${esc(b.name)}</h3><div class="csub">No sessions logged yet — the chart starts with your first one.</div></div>`;
   const W=560,H=130,P=30;
   const mn=Math.min(...vals)*.92||0, mx=Math.max(...vals)*1.05||1;
   const x=i=>P+i*(W-P-8)/Math.max(pts.length-1,1), y=v=>H-14-(v-mn)/((mx-mn)||1)*(H-30);
@@ -609,7 +611,7 @@ function chartHTML(b){
   const delta=first?Math.round((cur-first)/first*100):0;
   const last=lastSession(b.id);
   const mlabel={volume:"total reps × weight",firstset:"first-set reps (cleanest signal)",weight:"working weight"}[chartMetric];
-  return `<div class="card chartcard"><h3>${esc(b.name)}</h3>
+  return `<div class="card chartcard" data-ex="${b.id}"><h3>${esc(b.name)}</h3>
   <div class="csub">${mlabel} · x = session # · gaps stay gaps · <b>${delta>=0?"+":""}${delta}%</b> vs session 1 · current wt <b>${last?esc(last.e.wt):"—"}</b></div>
   <svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
    <line x1="${P}" y1="${H-14}" x2="${W-6}" y2="${H-14}" stroke="var(--line)"/>
@@ -638,9 +640,78 @@ function renderProgress(){
   <div class="n">🍺 ${beers.toLocaleString()} beers</div>
   <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · 160 kcal a beer · lifting doesn't count</div></div>`;
   h+=`<h2>Charts by session</h2>
-  <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
-  store.bank.filter(b=>b.volume).forEach(b=>h+=chartHTML(b));
+  <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>
+  <div class="subtle" style="margin:-2px 0 8px">Press and hold a chart, then drag it up or down to reorder.</div>
+  <div id="chartList">`;
+  chartBanks().forEach(b=>h+=chartHTML(b));
+  h+=`</div>`;
   $("#scr-progress").innerHTML=h;
+  bindChartDrag();
+}
+function chartBanks(){
+  const vol=store.bank.filter(b=>b.volume);
+  const order=store.chartOrder||[];
+  return vol.slice().sort((a,b)=>{
+    const ia=order.indexOf(a.id), ib=order.indexOf(b.id);
+    return (ia<0?order.length:ia)-(ib<0?order.length:ib);
+  });
+}
+/* press-and-hold drag to reorder chart cards */
+let chartDrag=null;
+function bindChartDrag(){
+  const list=document.getElementById("chartList"); if(!list)return;
+  list.querySelectorAll(".chartcard").forEach(card=>{
+    card.addEventListener("pointerdown",e=>{
+      if(e.button)return;
+      const sx=e.clientX, sy=e.clientY;
+      const hold=setTimeout(()=>{cleanupPre();beginChartDrag(card,sy);},350);
+      const pre=ev=>{if(!chartDrag&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>10){clearTimeout(hold);cleanupPre();}};
+      const up=()=>{clearTimeout(hold);cleanupPre();};
+      function cleanupPre(){document.removeEventListener("pointermove",pre);document.removeEventListener("pointerup",up);}
+      document.addEventListener("pointermove",pre);
+      document.addEventListener("pointerup",up);
+    });
+  });
+}
+function beginChartDrag(card,pointerY){
+  chartDrag={card,baseY:pointerY};
+  card.classList.add("lifting");
+  card.style.transform="translateY(0) scale(1.02)";
+  document.addEventListener("touchmove",chartPreventScroll,{passive:false});
+  document.addEventListener("pointermove",chartDragMove);
+  document.addEventListener("pointerup",chartDragEnd);
+  document.addEventListener("pointercancel",chartDragEnd);
+}
+function chartPreventScroll(e){e.preventDefault();}
+function chartDragMove(e){
+  if(!chartDrag)return;
+  const d=chartDrag, GAP=12;
+  let dy=e.clientY-d.baseY;
+  d.card.style.transform=`translateY(${dy}px) scale(1.02)`;
+  const r=d.card.getBoundingClientRect();
+  const next=d.card.nextElementSibling, prev=d.card.previousElementSibling;
+  if(next){
+    const nr=next.getBoundingClientRect();
+    if(r.bottom>nr.top+nr.height/2){next.after(d.card);d.baseY+=nr.height+GAP;d.card.style.transform=`translateY(${e.clientY-d.baseY}px) scale(1.02)`;return;}
+  }
+  if(prev){
+    const pr=prev.getBoundingClientRect();
+    if(r.top<pr.top+pr.height/2){prev.before(d.card);d.baseY-=pr.height+GAP;d.card.style.transform=`translateY(${e.clientY-d.baseY}px) scale(1.02)`;}
+  }
+}
+function chartDragEnd(){
+  if(!chartDrag)return;
+  const card=chartDrag.card;
+  card.classList.remove("lifting");card.style.transform="";
+  document.removeEventListener("touchmove",chartPreventScroll);
+  document.removeEventListener("pointermove",chartDragMove);
+  document.removeEventListener("pointerup",chartDragEnd);
+  document.removeEventListener("pointercancel",chartDragEnd);
+  chartDrag=null;
+  const list=document.getElementById("chartList");
+  store.chartOrder=[...list.children].map(c=>c.dataset.ex);
+  commit();
+  toast("Chart order saved");
 }
 function setMetric(m){chartMetric=m;renderProgress();}
 function setThresh(id,v){const b=bankById(id);const n=parseFloat(v);if(!isNaN(n)&&n>0)b.thresh=n;commit();renderProgress();renderBank();renderToday();toast(`${b.name}: live threshold → ${b.thresh} (future sessions)`);}
