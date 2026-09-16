@@ -647,18 +647,58 @@ function renderProgress(){
   <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>
   <div class="subtle" style="margin:-2px 0 8px">Press and hold a chart, then drag it up or down to reorder.</div>
   <div id="chartList">`;
-  chartBanks().forEach(b=>h+=chartHTML(b));
+  orderedChartCards().forEach(it=>h+=it.html());
   h+=`</div>`;
   $("#scr-progress").innerHTML=h;
   bindChartDrag();
 }
-function chartBanks(){
-  const vol=store.bank.filter(b=>b.volume);
+function orderedChartCards(){
+  const items=store.bank.filter(b=>b.volume).map(b=>({id:b.id,html:()=>chartHTML(b)}));
+  items.unshift({id:"__wwburn",html:()=>cycleBurnHTML()});
   const order=store.chartOrder||[];
-  return vol.slice().sort((a,b)=>{
+  return items.slice().sort((a,b)=>{
     const ia=order.indexOf(a.id), ib=order.indexOf(b.id);
     return (ia<0?order.length:ia)-(ib<0?order.length:ib);
   });
+}
+function cycleBurnHTML(){
+  const curC=nextSeq().cycle;
+  const by={}, walks={};
+  store.log.forEach(e=>{
+    const w=e.workWalk; if(!w||!w.time||!w.dist)return;
+    const inc=(w.incline==null?18:w.incline);
+    const sp=(w.dist/(w.time/60))*26.82, vo2=.1*sp+1.8*sp*(inc/100)+3.5;
+    const k=(vo2/3.5)*((store.settings.bodyweight+(w.vest||0))/2.205)*(w.time/60);
+    by[e.cycle]=(by[e.cycle]||0)+k; walks[e.cycle]=(walks[e.cycle]||0)+1;
+  });
+  const cycles=[];for(let c=1;c<=curC;c++)cycles.push({c,k:by[c]||0,n:walks[c]||0});
+  const completed=cycles.filter(x=>x.c<curC&&x.n>0);
+  const avg=completed.length?completed.reduce((a,x)=>a+x.k,0)/completed.length:0;
+  const total=cycles.reduce((a,x)=>a+x.k,0);
+  const curK=by[curC]||0, curDays=store.log.filter(e=>e.cycle===curC).length;
+  const W=560,H=210,P=34,BOT=178;
+  const N=cycles.length, plotW=W-P-8, slot=plotW/N, barW=Math.min(24,slot*0.72);
+  const mx=Math.max(500,...cycles.map(x=>x.k))*1.05;
+  const y=v=>BOT-(v/mx)*(BOT-26);
+  let g="";
+  for(let t=1;t<=4;t++){const v=mx*t/4, yy=y(v);
+    g+=`<line x1="${P}" y1="${yy.toFixed(1)}" x2="${W-8}" y2="${yy.toFixed(1)}" stroke="var(--line)"/><text x="${P-4}" y="${(yy+3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${v>=1000?(v/1000).toFixed(1)+"k":Math.round(v)}</text>`;}
+  g+=`<line x1="${P}" y1="${BOT}" x2="${W-8}" y2="${BOT}" stroke="var(--muted)"/>`;
+  if(avg>0)g+=`<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W-8}" y2="${y(avg).toFixed(1)}" stroke="#bf8f00" stroke-dasharray="5 4" opacity=".65"/><text x="${W-10}" y="${(y(avg)-4).toFixed(1)}" font-size="9" fill="#854f0b" text-anchor="end">avg ${Math.round(avg).toLocaleString()}</text>`;
+  const lblEvery=Math.ceil(N/16);
+  cycles.forEach((x,i)=>{
+    const cx=P+i*slot+slot/2, bx=cx-barW/2, isCur=x.c===curC;
+    const bh=Math.max(x.k>0?2:1,BOT-y(x.k));
+    if(isCur)g+=`<rect x="${bx.toFixed(1)}" y="${(BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="var(--legs-bg)" stroke="#bf8f00" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    else g+=`<rect x="${bx.toFixed(1)}" y="${(BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${x.k>0?"#bf8f00":"var(--line)"}"/>`;
+    if(slot>=18&&x.k>0)g+=`<text x="${cx.toFixed(1)}" y="${(BOT-bh-4).toFixed(1)}" font-size="8" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle">${Math.round(x.k)}</text>`;
+    if(i%lblEvery===0||isCur)g+=`<text x="${cx.toFixed(1)}" y="${BOT+13}" font-size="8.5" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle">C${x.c}</text>`;
+  });
+  return `<div class="card chartcard" data-ex="__wwburn"><h3>Work walk burn by cycle</h3>
+  <div class="csub">ACSM kcal per 8-day cycle · 160 kcal = 1 beer · dashed line = completed-cycle average</div>
+  <div style="display:inline-block;background:var(--legs-bg);border:1px dashed #bf8f00;color:#7a5c00;border-radius:6px;padding:3px 8px;margin:2px 0 6px;font-size:11.5px;font-weight:700">Cycle ${curC} in progress — ${Math.round(curK).toLocaleString()} kcal after ${curDays} day${curDays===1?"":"s"}</div>
+  <svg class="chart" viewBox="0 0 ${W} ${H}" style="height:170px" preserveAspectRatio="none">${g}</svg>
+  <div class="subtle" style="margin-top:4px">${Math.round(total).toLocaleString()} kcal lifetime = ${Math.floor(total/160)} beers${cycles[0]&&cycles[0].n===0?" · C1 predates work-walk logging":""}</div></div>`;
 }
 /* press-and-hold drag to reorder chart cards */
 let chartDrag=null;
