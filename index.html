@@ -601,6 +601,17 @@ function series(exId,metric){
   while(pts.length&&pts[pts.length-1]==null)pts.pop();
   return pts;
 }
+function weightChanges(exId){
+  const out=[];let i=-1,prev=null;
+  store.log.forEach(d=>{
+    const e=d.entries.find(x=>x.exId===exId); if(!e)return;
+    i++;
+    if(typeof e.wt!=="number"||!(e.total>0))return;
+    if(prev!=null&&e.wt!==prev)out.push({i,from:prev,to:e.wt});
+    prev=e.wt;
+  });
+  return out;
+}
 function chartHTML(b){
   const pts=series(b.id,chartMetric);
   const vals=pts.filter(p=>p!=null);
@@ -611,13 +622,18 @@ function chartHTML(b){
   let path="";let started=false;
   pts.forEach((p,i)=>{if(p==null){started=false;return;}path+=(started?" L":" M")+`${x(i).toFixed(1)} ${y(p).toFixed(1)}`;started=true;});
   const dots=pts.map((p,i)=>p==null?"":`<circle cx="${x(i).toFixed(1)}" cy="${y(p).toFixed(1)}" r="3" fill="var(--push)"/>`).join("");
+  const showMarks=chartMetric!=="weight";
+  const marks=showMarks?weightChanges(b.id).filter(c=>c.i<pts.length).map(c=>{
+    const up=c.to>c.from, col=up?"var(--flag)":"var(--muted)", d=Math.round((c.to-c.from)*10)/10, xx=x(c.i).toFixed(1);
+    return `<line x1="${xx}" y1="11" x2="${xx}" y2="${H-14}" stroke="${col}" stroke-width="1.3" stroke-dasharray="4 3" opacity=".8"/><text x="${xx}" y="8" font-size="8" font-weight="700" fill="${col}" text-anchor="middle">${up?"+":"−"}${Math.abs(d)}</text>`;
+  }).join(""):"";
   const cur=[...vals].pop(),first=vals[0];
   const delta=first?Math.round((cur-first)/first*100):0;
   const last=lastSession(b.id);
   const mlabel={volume:"total reps × weight",firstset:"first-set reps (cleanest signal)",weight:"working weight"}[chartMetric];
   return `<div class="card chartcard" data-ex="${b.id}"><h3>${esc(b.name)}</h3>
-  <div class="csub">${mlabel} · x = session # · gaps stay gaps · <b>${delta>=0?"+":""}${delta}%</b> vs session 1 · current wt <b>${last?esc(last.e.wt):"—"}</b></div>
-  <svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+  <div class="csub">${mlabel} · x = session # · gaps stay gaps · <b>${delta>=0?"+":""}${delta}%</b> vs session 1 · current wt <b>${last?esc(last.e.wt):"—"}</b>${marks?` · <span style="color:var(--flag);font-weight:700">┆</span> weight change`:""}</div>
+  <svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${marks}
    <line x1="${P}" y1="${H-14}" x2="${W-6}" y2="${H-14}" stroke="var(--line)"/>
    <text x="${P}" y="${H-3}" font-size="9" fill="var(--muted)">1</text>
    <text x="${W-18}" y="${H-3}" font-size="9" fill="var(--muted)">${pts.length}</text>
