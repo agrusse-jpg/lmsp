@@ -652,24 +652,39 @@ function cumCal(){
 function renderProgress(){
   const v=cumVert(),n=Math.floor(v/EVEREST);
   const kcal=cumCal(),beers=Math.floor(kcal/160);
-  let h=`<div class="everest"><div style="font-size:12px;opacity:.85">CUMULATIVE VERTICAL — WORK WALKS</div>
+  const cyc=cycleChartBanks();
+  let h=`<div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
+  if(cyc.length){
+    h+=`<h2 style="margin-top:4px">This cycle</h2>
+    <div class="subtle" style="margin:-2px 0 8px">Exercises in your current 8-day lineup, in cycle order. Updates when you change the cycle.</div>`;
+    cyc.forEach(b=>h+=chartHTML(b));
+  }
+  h+=`<div class="everest"><div style="font-size:12px;opacity:.85">CUMULATIVE VERTICAL — WORK WALKS</div>
   <div class="n">${Math.round(v).toLocaleString()} ft</div>
   <div style="font-size:13px">⛰ ${n} Everest${n===1?"":"s"} climbed · ${Math.round(((v%EVEREST)/EVEREST)*100)}% up #${n+1}</div>
   <div class="ebar"><div style="width:${((v%EVEREST)/EVEREST*100).toFixed(1)}%"></div></div></div>`;
   h+=`<div class="everest" style="background:linear-gradient(135deg,#5c4500,#bf8f00)"><div style="font-size:12px;opacity:.85">BEER BUDGET — WORK WALKS ONLY</div>
   <div class="n">🍺 ${beers.toLocaleString()} beers</div>
   <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · 160 kcal a beer · lifting doesn't count</div></div>`;
-  h+=`<h2>Charts by session</h2>
-  <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>
+  h+=`<h2>Other charts</h2>
   <div class="subtle" style="margin:-2px 0 8px">Press and hold a chart, then drag it up or down to reorder.</div>
   <div id="chartList">`;
-  orderedChartCards().forEach(it=>h+=it.html());
+  orderedChartCards(cyc.map(b=>b.id)).forEach(it=>h+=it.html());
   h+=`</div>`;
   $("#scr-progress").innerHTML=h;
   bindChartDrag();
 }
-function orderedChartCards(){
-  const items=store.bank.filter(b=>b.volume).map(b=>({id:b.id,html:()=>chartHTML(b)}));
+function cycleChartBanks(){
+  const seen=new Set(), out=[];
+  store.cycle.forEach(d=>d.ex.forEach(id=>{
+    if(seen.has(id))return; seen.add(id);
+    const b=bankById(id);
+    if(b&&b.volume&&b.rule!=="display")out.push(b);
+  }));
+  return out;
+}
+function orderedChartCards(exclude){
+  const items=store.bank.filter(b=>b.volume&&!(exclude||[]).includes(b.id)).map(b=>({id:b.id,html:()=>chartHTML(b)}));
   items.unshift({id:"__wwburn",html:()=>cycleBurnHTML()});
   const order=store.chartOrder||[];
   return items.slice().sort((a,b)=>{
@@ -796,9 +811,9 @@ function renderCycle(){
   });
   $("#scr-cycle").innerHTML=h;
 }
-function cycAdd(di,id){if(!id)return;store.cycle[di].ex.push(id);commit();renderCycle();renderToday();toast(`${bankById(id).name} added to Day ${store.cycle[di].day} — tracked from its next occurrence`);}
-function cycRemove(di,i){const id=store.cycle[di].ex.splice(i,1)[0];commit();renderCycle();renderToday();toast(`${bankById(id)?bankById(id).name:"Exercise"} removed from Day ${store.cycle[di].day} — history unaffected`);}
-function cycMove(di,i,dir){const a=store.cycle[di].ex,j=i+dir;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];commit();renderCycle();renderToday();}
+function cycAdd(di,id){if(!id)return;store.cycle[di].ex.push(id);commit();renderCycle();renderToday();renderProgress();toast(`${bankById(id).name} added to Day ${store.cycle[di].day} — tracked from its next occurrence`);}
+function cycRemove(di,i){const id=store.cycle[di].ex.splice(i,1)[0];commit();renderCycle();renderToday();renderProgress();toast(`${bankById(id)?bankById(id).name:"Exercise"} removed from Day ${store.cycle[di].day} — history unaffected`);}
+function cycMove(di,i,dir){const a=store.cycle[di].ex,j=i+dir;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];commit();renderCycle();renderToday();renderProgress();}
 function cycCardio(di,v){store.cycle[di].cardio=v;commit();renderToday();toast(`Day ${store.cycle[di].day} default cardio → ${v}`);}
 
 /* ---------------- BANK ---------------- */
