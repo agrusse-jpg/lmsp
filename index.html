@@ -83,6 +83,14 @@
   .chartcard{-webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:pan-y;}
   .chartcard.lifting{box-shadow:0 8px 24px rgba(20,30,50,.28); opacity:.96; position:relative; z-index:5;}
   .chartcard h3{margin:0 0 2px; font-size:14px;}
+  .burncard{touch-action:auto;}
+  .burnhead{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .zoombtns{display:flex; gap:5px; flex-shrink:0;}
+  .burnchip{display:inline-block; background:var(--legs-bg); border:1px dashed #bf8f00; color:#7a5c00; border-radius:6px; padding:3px 8px; margin:4px 0 6px; font-size:11.5px; font-weight:700;}
+  .burnwrap{display:flex; height:196px;}
+  .burnaxis{flex-shrink:0; display:block;}
+  .burnscroll{flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; touch-action:pan-x pan-y; -webkit-overflow-scrolling:touch;}
+  .burnscroll svg{display:block;}
   .chartcard .csub{font-size:11.5px; color:var(--muted); margin-bottom:6px;}
   svg.chart{width:100%; height:130px; display:block;}
   .metricrow{display:flex; gap:6px; margin:2px 0 10px;}
@@ -653,26 +661,32 @@ function renderProgress(){
   const v=cumVert(),n=Math.floor(v/EVEREST);
   const kcal=cumCal(),beers=Math.floor(kcal/160);
   const cyc=cycleChartBanks();
-  let h=`<div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
-  if(cyc.length){
-    h+=`<h2 style="margin-top:4px">This cycle</h2>
-    <div class="subtle" style="margin:-2px 0 8px">Exercises in your current 8-day lineup, in cycle order. Updates when you change the cycle.</div>`;
-    cyc.forEach(b=>h+=chartHTML(b));
-  }
-  h+=`<div class="everest"><div style="font-size:12px;opacity:.85">CUMULATIVE VERTICAL — WORK WALKS</div>
+  let h=`<div class="everest"><div style="font-size:12px;opacity:.85">CUMULATIVE VERTICAL — WORK WALKS</div>
   <div class="n">${Math.round(v).toLocaleString()} ft</div>
   <div style="font-size:13px">⛰ ${n} Everest${n===1?"":"s"} climbed · ${Math.round(((v%EVEREST)/EVEREST)*100)}% up #${n+1}</div>
   <div class="ebar"><div style="width:${((v%EVEREST)/EVEREST*100).toFixed(1)}%"></div></div></div>`;
   h+=`<div class="everest" style="background:linear-gradient(135deg,#5c4500,#bf8f00)"><div style="font-size:12px;opacity:.85">BEER BUDGET — WORK WALKS ONLY</div>
   <div class="n">🍺 ${beers.toLocaleString()} beers</div>
   <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · 160 kcal a beer · lifting doesn't count</div></div>`;
-  h+=`<h2>Other charts</h2>
-  <div class="subtle" style="margin:-2px 0 8px">Press and hold a chart, then drag it up or down to reorder.</div>
-  <div id="chartList">`;
-  orderedChartCards(cyc.map(b=>b.id)).forEach(it=>h+=it.html());
+  h+=cycleBurnHTML();
+  h+=`<h2>Exercise charts</h2>
+  <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
+  if(cyc.length){
+    h+=`<div class="subtle" style="margin:-2px 0 8px"><b>This cycle</b> — exercises in your current 8-day lineup, in cycle order. Updates when you change the cycle.</div>`;
+    cyc.forEach(b=>h+=chartHTML(b));
+  }
+  const rest=orderedChartCards(cyc.map(b=>b.id));
+  if(rest.length){
+    h+=`<h2>Other charts</h2>
+    <div class="subtle" style="margin:-2px 0 8px">Press and hold a chart, then drag it up or down to reorder.</div>`;
+  }
+  h+=`<div id="chartList">`;
+  rest.forEach(it=>h+=it.html());
   h+=`</div>`;
   $("#scr-progress").innerHTML=h;
   bindChartDrag();
+  drawBurn();
+  bindBurnZoom();
 }
 function cycleChartBanks(){
   const seen=new Set(), out=[];
@@ -685,14 +699,16 @@ function cycleChartBanks(){
 }
 function orderedChartCards(exclude){
   const items=store.bank.filter(b=>b.volume&&!(exclude||[]).includes(b.id)).map(b=>({id:b.id,html:()=>chartHTML(b)}));
-  items.unshift({id:"__wwburn",html:()=>cycleBurnHTML()});
   const order=store.chartOrder||[];
   return items.slice().sort((a,b)=>{
     const ia=order.indexOf(a.id), ib=order.indexOf(b.id);
     return (ia<0?order.length:ia)-(ib<0?order.length:ib);
   });
 }
-function cycleBurnHTML(){
+/* ---- work walk burn by cycle: drawn at true pixel size so text never shrinks; zoom widens it inside a scroll strip ---- */
+let burnZoom=1;
+const BURN_H=196, BURN_TOP=24, BURN_BOT=166, BURN_MA="#1f4e8c";
+function burnData(){
   const curC=nextSeq().cycle;
   const by={}, walks={};
   store.log.forEach(e=>{
@@ -703,33 +719,93 @@ function cycleBurnHTML(){
     by[e.cycle]=(by[e.cycle]||0)+k; walks[e.cycle]=(walks[e.cycle]||0)+1;
   });
   const cycles=[];for(let c=1;c<=curC;c++)cycles.push({c,k:by[c]||0,n:walks[c]||0});
-  const completed=cycles.filter(x=>x.c<curC&&x.n>0);
-  const avg=completed.length?completed.reduce((a,x)=>a+x.k,0)/completed.length:0;
-  const total=cycles.reduce((a,x)=>a+x.k,0);
-  const curK=by[curC]||0, curDays=store.log.filter(e=>e.cycle===curC).length;
-  const W=560,H=210,P=34,BOT=178;
-  const N=cycles.length, plotW=W-P-8, slot=plotW/N, barW=Math.min(24,slot*0.72);
-  const mx=Math.max(500,...cycles.map(x=>x.k))*1.05;
-  const y=v=>BOT-(v/mx)*(BOT-26);
-  let g="";
-  for(let t=1;t<=4;t++){const v=mx*t/4, yy=y(v);
-    g+=`<line x1="${P}" y1="${yy.toFixed(1)}" x2="${W-8}" y2="${yy.toFixed(1)}" stroke="var(--line)"/><text x="${P-4}" y="${(yy+3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${v>=1000?(v/1000).toFixed(1)+"k":Math.round(v)}</text>`;}
-  g+=`<line x1="${P}" y1="${BOT}" x2="${W-8}" y2="${BOT}" stroke="var(--muted)"/>`;
-  if(avg>0)g+=`<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W-8}" y2="${y(avg).toFixed(1)}" stroke="#bf8f00" stroke-dasharray="5 4" opacity=".65"/><text x="${W-10}" y="${(y(avg)-4).toFixed(1)}" font-size="9" fill="#854f0b" text-anchor="end">avg ${Math.round(avg).toLocaleString()}</text>`;
-  const lblEvery=Math.ceil(N/16);
   cycles.forEach((x,i)=>{
-    const cx=P+i*slot+slot/2, bx=cx-barW/2, isCur=x.c===curC;
-    const bh=Math.max(x.k>0?2:1,BOT-y(x.k));
-    if(isCur)g+=`<rect x="${bx.toFixed(1)}" y="${(BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="var(--legs-bg)" stroke="#bf8f00" stroke-width="1.5" stroke-dasharray="4 3"/>`;
-    else g+=`<rect x="${bx.toFixed(1)}" y="${(BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${x.k>0?"#bf8f00":"var(--line)"}"/>`;
-    if(slot>=18&&x.k>0)g+=`<text x="${cx.toFixed(1)}" y="${(BOT-bh-4).toFixed(1)}" font-size="8" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle">${Math.round(x.k)}</text>`;
-    if(i%lblEvery===0||isCur)g+=`<text x="${cx.toFixed(1)}" y="${BOT+13}" font-size="8.5" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle">C${x.c}</text>`;
+    const prior=cycles.slice(0,i).filter(p=>p.n>0).slice(-3);
+    x.ma=prior.length===3?prior.reduce((a,p)=>a+p.k,0)/3:null;
   });
-  return `<div class="card chartcard" data-ex="__wwburn"><h3>Work walk burn by cycle</h3>
-  <div class="csub">ACSM kcal per 8-day cycle · 160 kcal = 1 beer · dashed line = completed-cycle average</div>
-  <div style="display:inline-block;background:var(--legs-bg);border:1px dashed #bf8f00;color:#7a5c00;border-radius:6px;padding:3px 8px;margin:2px 0 6px;font-size:11.5px;font-weight:700">Cycle ${curC} in progress — ${Math.round(curK).toLocaleString()} kcal after ${curDays} day${curDays===1?"":"s"}</div>
-  <svg class="chart" viewBox="0 0 ${W} ${H}" style="height:170px" preserveAspectRatio="none">${g}</svg>
-  <div class="subtle" style="margin-top:4px">${Math.round(total).toLocaleString()} kcal lifetime = ${Math.floor(total/160)} beers${cycles[0]&&cycles[0].n===0?" · C1 predates work-walk logging":""}</div></div>`;
+  return {cycles,curC,curK:by[curC]||0,curDays:store.log.filter(e=>e.cycle===curC).length,
+    total:cycles.reduce((a,x)=>a+x.k,0)};
+}
+function cycleBurnHTML(){
+  const d=burnData(), cur=d.cycles[d.cycles.length-1];
+  return `<div class="card chartcard burncard"><div class="burnhead"><div style="min-width:0"><h3>Work walk burn by cycle</h3>
+  <div class="csub">ACSM kcal per 8-day cycle · <b style="color:${BURN_MA}">━ avg of prior 3 cycles</b></div></div>
+  <div class="zoombtns"><button class="icobtn" onclick="burnZoomBy(1/1.6)" aria-label="Zoom out">−</button><button class="icobtn" onclick="burnZoomBy(1.6)" aria-label="Zoom in">+</button><button class="icobtn" style="width:auto;padding:0 8px;font-size:11px;font-weight:700" onclick="burnZoomTo(1)">All</button></div></div>
+  <div class="burnchip">Cycle ${d.curC} in progress — ${Math.round(d.curK).toLocaleString()} kcal after ${d.curDays} day${d.curDays===1?"":"s"}${cur&&cur.ma!=null?` · prior-3 avg ${Math.round(cur.ma).toLocaleString()}`:""}</div>
+  <div class="burnwrap"><svg id="burnAxis" class="burnaxis" aria-hidden="true"></svg><div id="burnScroll" class="burnscroll"><svg id="burnSvg" role="img" aria-label="Work walk calories per cycle"></svg></div></div>
+  <div class="subtle" style="margin-top:4px">Pinch or tap + / − to zoom, swipe sideways to scroll · ${Math.round(d.total).toLocaleString()} kcal lifetime = ${Math.floor(d.total/160)} beers${d.cycles[0]&&d.cycles[0].n===0?" · C1 predates work-walk logging":""}</div></div>`;
+}
+function drawBurn(keep){
+  const sc=document.getElementById("burnScroll"), svg=document.getElementById("burnSvg"), axis=document.getElementById("burnAxis");
+  if(!sc||!svg)return;
+  const d=burnData(), N=d.cycles.length;
+  let cw=sc.clientWidth;
+  if(!cw)cw=Math.max(200,Math.min(window.innerWidth,640)-24-30-34);
+  const maxZ=Math.max(1,N*52/cw);
+  burnZoom=Math.min(Math.max(1,burnZoom),maxZ);
+  const W=Math.round(cw*burnZoom), slot=W/N, barW=Math.min(30,slot*0.68);
+  const mx=Math.max(500,...d.cycles.map(x=>Math.max(x.k,x.ma||0)))*1.1;
+  const y=v=>BURN_BOT-(v/mx)*(BURN_BOT-BURN_TOP);
+  const halo='paint-order="stroke" stroke="var(--card)" stroke-width="3" stroke-linejoin="round"';
+  let ax="", g="";
+  for(let t=0;t<=4;t++){const v=mx*t/4/1.1, yy=y(v);
+    if(t)g+=`<line x1="0" y1="${yy.toFixed(1)}" x2="${W}" y2="${yy.toFixed(1)}" stroke="var(--line)"/>`;
+    ax+=`<text x="30" y="${(yy+3.5).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end">${v>=1000?(v/1000).toFixed(1)+"k":Math.round(v)}</text>`;}
+  g+=`<line x1="0" y1="${BURN_BOT}" x2="${W}" y2="${BURN_BOT}" stroke="var(--muted)"/>`;
+  const every=Math.max(1,Math.ceil(30/slot));
+  d.cycles.forEach((x,i)=>{
+    const cx=i*slot+slot/2, bx=cx-barW/2, isCur=x.c===d.curC;
+    const bh=Math.max(x.k>0?2:1,BURN_BOT-y(x.k));
+    if(isCur)g+=`<rect x="${bx.toFixed(1)}" y="${(BURN_BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="var(--legs-bg)" stroke="#bf8f00" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    else g+=`<rect x="${bx.toFixed(1)}" y="${(BURN_BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="${x.k>0?"#bf8f00":"var(--line)"}"/>`;
+    if(slot>=30&&x.k>0)g+=`<text x="${cx.toFixed(1)}" y="${(BURN_BOT-bh-5).toFixed(1)}" font-size="10" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle" ${halo}>${Math.round(x.k).toLocaleString()}</text>`;
+    if(i%every===0||isCur)g+=`<text x="${cx.toFixed(1)}" y="${BURN_BOT+15}" font-size="10" fill="${isCur?"#854f0b":"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="middle">C${x.c}</text>`;
+    if(isCur)g+=`<text x="${cx.toFixed(1)}" y="${BURN_BOT+27}" font-size="9" fill="#854f0b" text-anchor="middle">building</text>`;
+  });
+  let path="", on=false, last=null;
+  d.cycles.forEach((x,i)=>{
+    if(x.ma==null){on=false;return;}
+    const px=(i*slot+slot/2).toFixed(1), py=y(x.ma).toFixed(1);
+    path+=(on?" L":" M")+`${px} ${py}`; on=true; last={px,py,v:x.ma};
+  });
+  if(path){
+    g+=`<path d="${path}" fill="none" stroke="var(--card)" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    g+=`<path d="${path}" fill="none" stroke="${BURN_MA}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`;
+    d.cycles.forEach((x,i)=>{if(x.ma!=null)g+=`<circle cx="${(i*slot+slot/2).toFixed(1)}" cy="${y(x.ma).toFixed(1)}" r="${slot>=20?3:2}" fill="${BURN_MA}" stroke="var(--card)" stroke-width="1"/>`;});
+    if(last)g+=`<text x="${Math.min(W-4,+last.px+4).toFixed(1)}" y="${(+last.py-9).toFixed(1)}" font-size="10" font-weight="700" fill="${BURN_MA}" text-anchor="end" ${halo}>${Math.round(last.v).toLocaleString()}</text>`;
+  }
+  svg.setAttribute("width",W);svg.setAttribute("height",BURN_H);svg.setAttribute("viewBox",`0 0 ${W} ${BURN_H}`);
+  svg.innerHTML=g;
+  if(axis){axis.setAttribute("width",34);axis.setAttribute("height",BURN_H);axis.setAttribute("viewBox",`0 0 34 ${BURN_H}`);axis.innerHTML=ax;}
+  if(keep)sc.scrollLeft=keep.ratio*W-keep.px;
+  else sc.scrollLeft=W;
+}
+function burnAnchor(px){
+  const sc=document.getElementById("burnScroll"), svg=document.getElementById("burnSvg");
+  const W=parseFloat(svg.getAttribute("width"))||sc.clientWidth;
+  if(px==null)px=sc.clientWidth/2;
+  return {ratio:(sc.scrollLeft+px)/W,px};
+}
+function burnZoomBy(f){if(!document.getElementById("burnScroll"))return;const k=burnAnchor();burnZoom*=f;drawBurn(k);}
+function burnZoomTo(z){burnZoom=z;drawBurn();}
+function bindBurnZoom(){
+  const sc=document.getElementById("burnScroll"); if(!sc)return;
+  let p=null;
+  const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  const mid=t=>(t[0].clientX+t[1].clientX)/2-sc.getBoundingClientRect().left;
+  sc.addEventListener("touchstart",e=>{
+    if(e.touches.length===2){e.preventDefault();p={d0:dist(e.touches)||1,z0:burnZoom,k:burnAnchor(mid(e.touches))};}
+  },{passive:false});
+  sc.addEventListener("touchmove",e=>{
+    if(p&&e.touches.length===2){e.preventDefault();burnZoom=p.z0*dist(e.touches)/p.d0;drawBurn(p.k);}
+  },{passive:false});
+  sc.addEventListener("touchend",e=>{if(e.touches.length<2)p=null;});
+  sc.addEventListener("wheel",e=>{
+    if(!e.ctrlKey)return;
+    e.preventDefault();
+    const k=burnAnchor(e.clientX-sc.getBoundingClientRect().left);
+    burnZoom*=Math.exp(-e.deltaY*0.01);drawBurn(k);
+  },{passive:false});
 }
 /* press-and-hold drag to reorder chart cards */
 let chartDrag=null;
@@ -965,6 +1041,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
   $("#scr-"+b.dataset.s).classList.add("on");window.scrollTo(0,0);
+  if(b.dataset.s==="progress")drawBurn();
 });
 $("#modalwrap").addEventListener("click",e=>{if(e.target.id==="modalwrap")closeModal();});
 /* Today screen autosaves a draft on every interaction */
@@ -974,6 +1051,7 @@ $("#scr-today").addEventListener("click",e=>{if(e.target.closest(".cchip,.rchk")
 loadStore();
 persist();
 renderAll();
+window.addEventListener("resize",()=>{if($("#scr-progress").classList.contains("on"))drawBurn();});
 </script>
 </body>
 </html>
