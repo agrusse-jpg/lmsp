@@ -9,7 +9,7 @@
     --bg:#f4f5f7; --card:#ffffff; --ink:#1a2330; --muted:#68758a; --line:#e3e7ee;
     --input-bg:#ddebf7; --input-line:#9dc3e6; --calc-bg:#f2f2f2;
     --push:#2e75b6; --push-bg:#e8f1fa; --pull:#3a8a4d; --pull-bg:#e9f5ec;
-    --legs:#bf8f00; --legs-bg:#fdf6e0; --rest:#7f7f7f; --rest-bg:#efefef;
+    --legs:#bf8f00; --legs-bg:#fdf6e0; --rest:#7f7f7f; --rest-bg:#efefef; --alt:#7b5ea7; --alt-bg:#f1ecf8; --gap:#d9534f;
     --flag:#2e9e4f; --flag-bg:#dcf3e3; --accent:#2e75b6; --danger:#c0392b; --warn-bg:#fff8e1; --warn-line:#f0dc9a; --warn-ink:#7a5c00;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -75,6 +75,28 @@
   table.mini th{text-align:left; color:var(--muted); font-weight:600; font-size:10.5px; text-transform:uppercase; padding:3px 4px;}
   table.mini td{padding:4px; border-top:1px solid var(--line);}
   .fl{color:var(--flag); font-weight:800;}
+  .caltally{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:10px;}
+  .caltally div{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 9px;}
+  .caltally b{display:block; font-size:19px; font-weight:800; font-variant-numeric:tabular-nums;}
+  .caltally span{display:block; font-size:10.5px; color:var(--muted); line-height:1.25;}
+  .caltally .lk b{color:var(--gap);} .caltally .al b{color:var(--alt);}
+  .callegend{display:flex; flex-wrap:wrap; gap:6px 12px; font-size:11px; color:var(--muted); margin-bottom:8px;}
+  .callegend span{display:inline-flex; align-items:center; gap:4px;}
+  .callegend i{width:12px; height:12px; border-radius:3px; display:inline-block;}
+  .calmonths{display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px;}
+  .calmonth{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 10px 8px;}
+  .cmh{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:14px;}
+  .lkpill{font-size:11px; font-weight:700; padding:2px 8px; border-radius:99px; background:#e3f4e7; color:#22743a;}
+  .lkpill.bad{background:#fbe5e4; color:#b02a26;}
+  .calgrid{display:grid; grid-template-columns:repeat(7,1fr); gap:3px;}
+  .cdow{font-size:10px; color:var(--muted); text-align:center;}
+  .cday{aspect-ratio:1; border-radius:6px; position:relative; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; user-select:none;}
+  .cday.logged{color:#fff; cursor:pointer;}
+  .cday.logged.istoday{box-shadow:0 0 0 2px var(--ink);}
+  .cday.gap{background:#fff; border:2px solid var(--gap); color:var(--gap); cursor:pointer;}
+  .cday.today{background:#fff; border:2px dashed var(--accent); color:var(--accent); cursor:pointer;}
+  .cday.off{color:#c3cad4;}
+  .cbadge{position:absolute; top:-4px; right:-4px; background:var(--ink); color:#fff; font-size:9px; border-radius:99px; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border:1.5px solid #fff;}
   /* progress */
   .everest{background:linear-gradient(135deg,#25445f,#2e75b6); color:#fff; border-radius:12px; padding:15px 16px; margin-bottom:12px;}
   .everest .n{font-size:26px; font-weight:800;}
@@ -208,7 +230,7 @@ const SEED = [];
 
 const STORE_KEY = "lmsp.store.v1";
 const EVEREST = 29032;
-const TYPECOLOR = {"Push":["var(--push)","var(--push-bg)"],"Pull":["var(--pull)","var(--pull-bg)"],"Legs":["var(--legs)","var(--legs-bg)"],"REST":["var(--rest)","var(--rest-bg)"]};
+const TYPECOLOR = {"Push":["var(--push)","var(--push-bg)"],"Pull":["var(--pull)","var(--pull-bg)"],"Legs":["var(--legs)","var(--legs-bg)"],"REST":["var(--rest)","var(--rest-bg)"],"ALT":["var(--alt)","var(--alt-bg)"]};
 const RULETEXT = {total:t=>`${t} total reps → increase weight`, perset:t=>`Each set ≥${t} reps → increase weight/tension`, perleg:t=>`Both sets ≥${t} reps/leg → increase weight`, display:()=>"Not tracked — notes only"};
 const RULETAG  = {total:"TOTAL REPS", perset:"PER-SET MIN", perleg:"PER LEG", display:"DISPLAY ONLY"};
 
@@ -247,7 +269,7 @@ function seedToLog(){
     const hasData = d.type==="REST" || d.exercises.some(e=>e.total>0) || d.workWalk || d.cardio;
     const isTrailingEmpty = d.type!=="REST" && !d.exercises.some(e=>e.total>0);
     if(!hasData || isTrailingEmpty) return;
-    const entry = {id:"s"+log.length, date:d.date, cycle:d.cycle, day:d.day, type:d.type, inserted:false,
+    const entry = {id:"s"+log.length, date:d.date, cycle:d.cycle, day:d.day, type:d.type,
       entries:[], cardio:null, workWalk:d.workWalk||null, restChecks:null};
     if(d.type==="REST"){ entry.restChecks=[]; }
     d.exercises.forEach(e=>{
@@ -279,12 +301,24 @@ function loadStore(){
   if(storageOK){
     try{
       const raw = localStorage.getItem(STORE_KEY);
-      if(raw){ store = JSON.parse(raw); if(store && Array.isArray(store.log)){ normalizeDayTypes(store); return; } }
+      if(raw){ store = JSON.parse(raw); if(store && Array.isArray(store.log)){ migrateStore(store); return; } }
     }catch(e){}
   }
   store = buildDefault();
-  normalizeDayTypes(store);
+  migrateStore(store);
   persist();
+}
+function migrateStore(s){ normalizeDayTypes(s); migrateInserted(s); }
+/* inserted rest days are gone: empty ones are deleted, ones holding a work walk become alt workouts so the walk stays banked */
+function migrateInserted(s){
+  s.log=(s.log||[]).filter(e=>{
+    if(!e.inserted){ delete e.inserted; return true; }
+    const w=e.workWalk;
+    if(!(w&&(w.time||w.dist)))return false;
+    e.alt=true; e.type="ALT"; e.day=null; e.restChecks=null; e.notes=e.notes||"Logged as an inserted rest day";
+    delete e.inserted; return true;
+  });
+  if(s.draft&&s.draft.inserted){ s.draft.alt=true; s.draft.type="ALT"; delete s.draft.inserted; }
 }
 function simpleDayType(t){
   if(!t||t==="REST")return t;
@@ -323,7 +357,20 @@ function val(id){const el=document.getElementById(id);return el?el.value:"";}
 function numOrText(v){v=String(v??"").trim();if(v==="")return null;const n=parseFloat(v);return isNaN(n)?v:n;}
 
 /* ---------------- cycle engine ---------------- */
-function lastSeqEntry(){for(let i=store.log.length-1;i>=0;i--){if(!store.log[i].inserted)return store.log[i];}return null;}
+function lastSeqEntry(){for(let i=store.log.length-1;i>=0;i--){if(!store.log[i].alt)return store.log[i];}return null;}
+/* alt workouts never move the cycle; they're filed under the cycle in progress on their date */
+function cycleAtDate(date){
+  let last=null; store.log.forEach(e=>{if(!e.alt&&e.date<=date)last=e;});
+  if(!last)return 1;
+  return last.day>=8?last.cycle+1:last.cycle;
+}
+function insertChrono(e){const i=store.log.findIndex(x=>x.date>e.date);if(i<0)store.log.push(e);else store.log.splice(i,0,e);}
+function addAlt(date,notes,workWalk){
+  const e={id:"s"+(++store.meta.seq)+"-"+Date.now(),date,cycle:cycleAtDate(date),day:null,type:"ALT",alt:true,
+    entries:[],cardio:null,workWalk,notes,restChecks:null};
+  insertChrono(e);
+  return e;
+}
 function nextSeq(){
   const last=lastSeqEntry();
   if(!last)return {cycle:1,day:1};
@@ -346,7 +393,7 @@ function calcFlag(b,sets){
 
 /* ---------------- session form (shared: new + edit) ----------------
    prefix "n" = new session on Today; "e" = edit modal.
-   ctx = {seq:{cycle,day}, type, exIds, cardioDefault, entry(optional existing), rest:bool, inserted:bool} */
+   ctx = {seq:{cycle,day}, type, exIds, cardioDefault, entry(optional existing), rest:bool, alt:bool} */
 let editCtx=null, newCtx=null;
 
 function exCardHTML(p,i,b,pre){
@@ -455,54 +502,64 @@ function collectSession(p,ctx){
   let cardio=null;
   const chipbox=document.getElementById(p+"cchips");
   if(chipbox){const on=chipbox.querySelector(".cchip.on");cardio={mode:on?on.textContent:"",notes:val(p+"cnotes")};}
-  let workWalk=null;
-  const t=num(val(p+"wwt")),d=num(val(p+"wwd"));
-  if(t!=null||d!=null)workWalk={incline:num(val(p+"wwi")),vest:num(val(p+"wwv"))||0,time:t,dist:d};
+  const workWalk=collectWW(p);
   let restChecks=null;
   if(ctx.rest){restChecks=[];document.querySelectorAll(`#${p===("n")?"scr-today":"modal"} .rchk.done`).forEach(el=>restChecks.push(parseInt(el.dataset.ri)));}
-  return {entries,cardio,workWalk,restChecks};
+  const an=document.getElementById(p+"altnotes");
+  return {entries,cardio,workWalk,restChecks,notes:an?an.value:null};
+}
+function collectWW(p){
+  const t=num(val(p+"wwt")),d=num(val(p+"wwd"));
+  return (t!=null||d!=null)?{incline:num(val(p+"wwi")),vest:num(val(p+"wwv"))||0,time:t,dist:d}:null;
+}
+function altNotesHTML(p,pre){
+  return `<div class="card"><div class="exname">Alt workout <span class="chip">counts as on-cycle</span></div>
+  <div class="rule">Travel, hike, hotel gym, anything meaningful. Add a work walk below to bank the calories and climb.</div>
+  <textarea class="notes" rows="3" id="${p}altnotes" placeholder="What you did…">${esc(pre||"")}</textarea></div>`;
 }
 
 /* ---------------- TODAY ---------------- */
-let todayMode="scheduled"; // or "insertRest"
+let todayMode="scheduled"; // or "alt"
 let draftTimer=null;
 function renderToday(){
   const seq=nextSeq();
   const draft=store.draft||null;
-  if(draft)todayMode=draft.inserted?"insertRest":"scheduled";
+  if(draft)todayMode=draft.alt?"alt":"scheduled";
+  const isAlt = todayMode==="alt";
   const cd=cycleDay(seq.day);
-  const isRest = todayMode==="insertRest" || cd.type==="REST";
-  const type = todayMode==="insertRest" ? "REST" : cd.type;
-  const exIds = (draft&&!isRest&&Array.isArray(draft.exIds)) ? draft.exIds.filter(id=>bankById(id)) : (isRest?[]:cd.ex.slice());
-  newCtx={seq,type,exIds,cardioDefault:cd.cardio,rest:isRest,inserted:todayMode==="insertRest"};
+  const isRest = !isAlt && cd.type==="REST";
+  const type = isAlt ? "ALT" : cd.type;
+  const exIds = (draft&&!isRest&&!isAlt&&Array.isArray(draft.exIds)) ? draft.exIds.filter(id=>bankById(id)) : (isRest||isAlt?[]:cd.ex.slice());
+  newCtx={seq,type,exIds,cardioDefault:cd.cardio,rest:isRest,alt:isAlt};
   const [col]=TYPECOLOR[type]||["var(--rest)"];
   const last=store.log[store.log.length-1];
   let h="";
   if(!storageOK)h+=`<div class="banner-note">⚠ This browser is blocking local storage, so sessions can't persist here. You can still log and use <b>More → Export</b> after each session, but a normal browser (Safari/Chrome) is strongly recommended.</div>`;
   if(!store.log.length&&!store.draft)h+=`<div class="banner-note">👋 <b>Fresh install.</b> To restore your training history, go to <b>More → 📂 Import backup from file</b> and pick your lmsp-backup .json (from OneDrive). Or just start logging — the cycle begins at Day 1.</div>`;
   if(last&&last.date===todayISO()){
-    h+=`<div class="card"><div class="exname">✓ Logged today — ${esc(last.inserted?"Inserted rest":last.type)}</div>
+    h+=`<div class="card"><div class="exname">✓ Logged today — ${esc(entryTitle(last))}</div>
     <div class="subtle" style="margin-top:3px">${esc(summaryLine(last))}</div>
     <div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" onclick="openEdit(${store.log.length-1})">Edit</button></div></div>
     <h2>Up next</h2>`;
   }
   h+=`<div class="daybanner" style="background:${col}">
-    <div><div class="big">${type==="REST"?(todayMode==="insertRest"?"INSERTED REST":"REST DAY"):type.toUpperCase()}</div>
-    <div class="small">${todayMode==="insertRest"?`Cycle ${seq.cycle} pauses — Day ${seq.day} shifts forward`:`Cycle ${seq.cycle} · Day ${seq.day} of 8`}</div></div>
-    <button class="btn ghost sm" style="background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.4);color:#fff" onclick="toggleInsertRest()">${todayMode==="insertRest"?"Back to scheduled day":"+ Insert rest day"}</button>
+    <div><div class="big">${isAlt?"ALT WORKOUT":type==="REST"?"REST DAY":type.toUpperCase()}</div>
+    <div class="small">${isAlt?`Cycle ${seq.cycle} stays on Day ${seq.day} (${esc(dayLabel(cd.type))})`:`Cycle ${seq.cycle} · Day ${seq.day} of 8`}</div></div>
+    <button class="btn ghost sm" style="background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.4);color:#fff;flex-shrink:0" onclick="toggleAlt()">${isAlt?`← Back to ${esc(dayLabel(cd.type))}`:"Log alt workout instead"}</button>
   </div>`;
-  if(draft)h+=`<div class="banner-note" style="background:var(--flag-bg);border-color:#b5e2c4;color:#1d7a3c">⏳ <b>Session in progress</b> — everything below autosaves as you type. Log the work walk now, lifts later, cardio after; hit Save when the day is done.</div>`;
-  h+=`<div class="datewrap"><span class="lbl">Session date</span><input type="date" id="ndate" value="${draft&&draft.date?draft.date:todayISO()}"><span class="lbl">future stays derived from the cycle</span></div>`;
-  if(!isRest){
+  if(draft)h+=`<div class="banner-note" style="background:var(--flag-bg);border-color:#b5e2c4;color:#1d7a3c">⏳ <b>${isAlt?"Alt workout":"Session"} in progress</b> — everything below autosaves as you type. Hit Save when the day is done.</div>`;
+  h+=`<div class="datewrap"><span class="lbl">${isAlt?"Date":"Session date"}</span><input type="date" id="ndate" value="${draft&&draft.date?draft.date:todayISO()}"><span class="lbl">${isAlt?"counts as an on-cycle day":"future stays derived from the cycle"}</span></div>`;
+  if(!isRest&&!isAlt){
     const due=newCtx.exIds.map(id=>({b:bankById(id),l:lastSession(id)})).filter(x=>x.b&&x.b.rule!=="display"&&x.l&&x.l.e.flag);
     if(due.length)h+=`<div class="card" style="border-left:5px solid var(--flag)"><div class="exname" style="color:#1d7a3c">⬆ Increase weight today</div>
     <div class="subtle" style="margin-top:4px">${due.map(x=>`<b>${esc(x.b.name)}</b> — hit ${x.l.e.total}/${x.l.e.thresh} at <b>${esc(x.l.e.wt??"BW")} lb</b> last session (${fmtDate(x.l.date)})`).join("<br>")}</div></div>`;
   }
-  if(isRest){ h+=restHTML("n",draft); }
+  if(isAlt){ h+=altNotesHTML("n",draft?draft.notes:null); }
+  else if(isRest){ h+=restHTML("n",draft); }
   else { newCtx.exIds.forEach((exId,i)=>{h+=exCardHTML("n",i,bankById(exId),draft&&draft.entries?draft.entries[i]:null);}); h+=cardioHTML("n",cd.cardio,draft?draft.cardio:null); }
   h+=wwHTML("n",draft?draft.workWalk:null);
   h+=`<div class="subtle" id="draftInfo" style="margin-bottom:8px">${draft?"Draft autosaved — safe to close the app and come back.":""}</div>
-  <div class="btnrow"><button class="btn primary" onclick="saveToday()">Save ${isRest?"rest day":"session"} — complete</button></div>
+  <div class="btnrow"><button class="btn primary" onclick="saveToday()">Save ${isAlt?"alt workout":isRest?"rest day":"session"} — complete</button></div>
   <div class="btnrow" id="discardRow" style="display:${draft?"":"none"}"><button class="btn danger sm" onclick="discardDraft()">Discard in-progress draft</button></div>`;
   $("#scr-today").innerHTML=h;
   wwCalc("n");
@@ -511,9 +568,9 @@ function renderToday(){
 function draftSave(){
   if(!newCtx)return;
   const c=collectSession("n",newCtx);
-  store.draft={inserted:newCtx.inserted,type:newCtx.type,exIds:newCtx.exIds.slice(),
+  store.draft={alt:newCtx.alt,type:newCtx.type,exIds:newCtx.exIds.slice(),
     date:val("ndate")||todayISO(),started:(store.draft&&store.draft.started)||new Date().toISOString(),
-    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks};
+    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks,notes:c.notes};
   clearTimeout(draftTimer);
   draftTimer=setTimeout(()=>{
     persist();
@@ -526,52 +583,144 @@ function discardDraft(){
   if(!confirm("Throw away everything typed for this session?"))return;
   store.draft=null;commit();renderToday();toast("Draft discarded");
 }
-function toggleInsertRest(){
+function toggleAlt(){
+  const toAlt=todayMode!=="alt";
   if(store.draft){
-    if(!confirm("Switching day type discards the in-progress draft. Continue?"))return;
+    if(!confirm(toAlt?"Switching to an alt workout discards the in-progress session draft. Continue?":"Going back discards the alt workout typed so far. Continue?"))return;
     store.draft=null;commit();
   }
-  todayMode=todayMode==="insertRest"?"scheduled":"insertRest";renderToday();
+  todayMode=toAlt?"alt":"scheduled";renderToday();window.scrollTo(0,0);
 }
 function saveToday(){
   const date=val("ndate")||todayISO();
   const c=collectSession("n",newCtx);
+  if(newCtx.alt){
+    const notes=(c.notes||"").trim();
+    if(!notes&&!c.workWalk)return toast("Add a note or a work walk first");
+    addAlt(date,notes,c.workWalk);
+    store.draft=null;todayMode="scheduled";
+    commit();renderAll();
+    const nx=nextSeq();
+    toast(`Alt workout saved ✓ — still up next: Day ${nx.day} (${dayLabel(cycleDay(nx.day).type)})`);
+    window.scrollTo(0,0);return;
+  }
   const entry={id:"s"+(++store.meta.seq)+"-"+Date.now(),date,
-    cycle:newCtx.seq.cycle,day:newCtx.inserted?null:newCtx.seq.day,
-    type:newCtx.inserted?"REST":newCtx.type,inserted:newCtx.inserted,
+    cycle:newCtx.seq.cycle,day:newCtx.seq.day,type:newCtx.type,
     entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks};
-  if(newCtx.inserted)entry.day=null;
   store.log.push(entry);
   store.draft=null;
   todayMode="scheduled";
   commit();renderAll();
   const nxt=nextSeq(),ncd=cycleDay(nxt.day);
-  toast(`Saved ✓ — up next: Day ${nxt.day} (${ncd.type})`);
+  toast(`Saved ✓ — up next: Day ${nxt.day} (${dayLabel(ncd.type)})`);
   window.scrollTo(0,0);
 }
+function entryTitle(e){return e.alt?"Alt workout":dayLabel(e.type);}
 function summaryLine(e){
-  if(e.type==="REST")return e.inserted?"Inserted rest day":"Rest day protocol";
+  if(e.alt)return e.notes||"Alt workout";
+  if(e.type==="REST")return "Rest day protocol";
   return e.entries.filter(x=>x.total>0).map(x=>`${x.name.split(" ")[0]} ${x.total}${x.flag?" ✓":""}`).join(" · ")||"No reps logged";
 }
 
 /* ---------------- HISTORY ---------------- */
+let histView="list";
+try{histView=localStorage.getItem("lmsp.histView")||"list";}catch(e){}
+function setHistView(v){histView=v;try{localStorage.setItem("lmsp.histView",v);}catch(e){}renderHistory();}
 function renderHistory(){
-  let h=`<div class="sub">${store.log.length} logged days — newest first. Tap to expand.</div>`;
-  for(let i=store.log.length-1;i>=0;i--){
-    const d=store.log[i];
-    const [col]=TYPECOLOR[d.type]||["var(--rest)"];
-    const flags=d.entries.filter(e=>e.flag).length;
-    h+=`<div class="card hday" id="hd${i}">
-      <div class="hhead" onclick="document.getElementById('hd${i}').classList.toggle('open')">
-      <div class="hbadge" style="background:${col}"><div class="d">${d.inserted?"+R":d.day}</div><div class="c">C${d.cycle}</div></div>
-      <div class="hmeta"><div class="t">${d.inserted?"Inserted rest":(d.type==="REST"?"Rest":esc(d.type))} — ${fmtDate(d.date)}</div>
-      <div class="s">${esc(summaryLine(d))}${flags?` · ${flags} ✓`:""}${d.workWalk&&d.workWalk.time?` · 🚶 ${d.workWalk.time}min`:""}</div></div>
-      <div class="subtle">▾</div></div>
-      <div class="hdetail">${dayDetail(d)}
-      <div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" onclick="openEdit(${i})">Edit</button>
-      ${i===store.log.length-1?`<button class="btn danger sm" onclick="deleteLast()">Delete (last entry only)</button>`:""}</div></div></div>`;
+  let h=`<div class="metricrow">${[["list","List"],["cal","Calendar"]].map(([k,l])=>`<div class="mchip ${histView===k?"on":""}" onclick="setHistView('${k}')">${l}</div>`).join("")}</div>`;
+  if(histView==="cal")h+=calendarHTML();
+  else{
+    h+=`<div class="sub">${store.log.length} logged days — newest first. Tap to expand.</div>`;
+    for(let i=store.log.length-1;i>=0;i--)h+=entryCardHTML(i,false);
   }
   $("#scr-history").innerHTML=h;
+}
+function entryCardHTML(i,open){
+  const d=store.log[i];
+  const [col]=TYPECOLOR[d.type]||["var(--rest)"];
+  const flags=d.entries.filter(e=>e.flag).length;
+  return `<div class="card hday${open?" open":""}">
+    <div class="hhead" onclick="this.parentElement.classList.toggle('open')">
+    <div class="hbadge" style="background:${col}"><div class="d">${d.alt?"Alt":d.day}</div><div class="c">C${d.cycle}</div></div>
+    <div class="hmeta"><div class="t">${esc(entryTitle(d))} — ${fmtDate(d.date)}</div>
+    <div class="s">${esc(summaryLine(d))}${flags?` · ${flags} ✓`:""}${d.workWalk&&d.workWalk.time?` · 🚶 ${d.workWalk.time}min`:""}</div></div>
+    <div class="subtle">▾</div></div>
+    <div class="hdetail">${dayDetail(d)}
+    <div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" onclick="openEdit(${i})">Edit</button>
+    <button class="btn danger sm" onclick="deleteEntry(${i})">Delete</button></div></div></div>`;
+}
+/* ---- leakage: calendar days since first log (today only once logged) minus every logged day, alt workouts included ---- */
+function leakStats(){
+  const dates=store.log.map(e=>e.date).filter(Boolean).sort();
+  if(!dates.length)return null;
+  const start=dates[0], today=todayISO(), todayN=isoDayNum(today);
+  const throughN=dates[dates.length-1]>=today?todayN:todayN-1;
+  const altCount=store.log.filter(e=>e.alt).length, onCycle=store.log.length, seqCount=onCycle-altCount;
+  const elapsed=Math.max(onCycle,1,throughN-isoDayNum(start)+1);
+  return {start,startN:isoDayNum(start),throughN,elapsed,seqCount,altCount,onCycle,leakage:elapsed-onCycle};
+}
+const MONTHNAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function calendarHTML(){
+  const ls=leakStats();
+  if(!ls)return `<div class="sub">Nothing logged yet — the calendar fills in as you log.</div>`;
+  const by={}; store.log.forEach((e,i)=>{(by[e.date]=by[e.date]||[]).push(i);});
+  let h=`<div class="caltally"><div><b>${ls.elapsed}</b><span>days tracked</span></div>
+  <div><b>${ls.seqCount}</b><span>cycle days logged</span></div>
+  <div class="al"><b>${ls.altCount}</b><span>alt workouts</span></div>
+  <div class="lk"><b>${ls.leakage}</b><span>leakage days</span></div></div>
+  <div class="callegend"><span><i style="background:var(--push)"></i>Push</span><span><i style="background:var(--pull)"></i>Pull</span><span><i style="background:var(--legs)"></i>Legs</span><span><i style="background:var(--rest)"></i>Rest</span><span><i style="background:var(--alt)"></i>Alt</span><span><i style="border:2px solid var(--gap)"></i>Leak</span></div>
+  <div class="sub">Tap a logged day to view, edit or delete it. Tap an empty day to log an alt workout.</div><div class="calmonths">`;
+  const [sy,sm]=ls.start.split("-").map(Number), td=new Date();
+  let y=td.getFullYear(), m=td.getMonth()+1;
+  while(y>sy||(y===sy&&m>=sm)){ h+=monthHTML(y,m,by,ls); if(--m<1){m=12;y--;} }
+  return h+`</div>`;
+}
+function monthHTML(y,m,by,ls){
+  const dim=new Date(y,m,0).getDate(), lead=(new Date(y,m-1,1).getDay()+6)%7, today=todayISO();
+  let g=["M","T","W","T","F","S","S"].map(x=>`<div class="cdow">${x}</div>`).join("");
+  for(let i=0;i<lead;i++)g+=`<div></div>`;
+  let leak=0, tracked=0;
+  for(let day=1;day<=dim;day++){
+    const iso=`${y}-${String(m).padStart(2,"0")}-${String(day).padStart(2,"0")}`, n=isoDayNum(iso), idxs=by[iso]||[];
+    const inRange=n>=ls.startN&&n<=ls.throughN;
+    if(inRange){tracked++;leak+=1-idxs.length;}
+    let cls="cday", style="", badge="", click="", tip="";
+    if(idxs.length){
+      const cols=idxs.map(i=>(TYPECOLOR[store.log[i].type]||["var(--rest)"])[0]);
+      style=idxs.length>1?`background:linear-gradient(135deg,${cols[0]} 50%,${cols[cols.length-1]} 50%)`:`background:${cols[0]}`;
+      cls+=" logged"+(iso===today?" istoday":""); click=`openDaySheet('${iso}')`;
+      if(idxs.length>1)badge=`<span class="cbadge">${idxs.length}</span>`;
+      tip=idxs.map(i=>{const e=store.log[i];return e.alt?"Alt workout":`C${e.cycle} D${e.day} ${dayLabel(e.type)}`;}).join(" + ");
+    }else if(inRange){cls+=" gap";click=`openAltForm('${iso}')`;tip="Nothing logged";}
+    else if(iso===today){cls+=" today";click=`openAltForm('${iso}')`;tip="Today";}
+    else cls+=" off";
+    g+=`<div class="${cls}" style="${style}"${click?` onclick="${click}" role="button"`:""}${tip?` title="${esc(tip)}"`:""}>${day}${badge}</div>`;
+  }
+  const pill=tracked?`<span class="lkpill${leak>3?" bad":""}">${leak>0?"+":""}${leak} leak</span>`:"";
+  return `<div class="calmonth"><div class="cmh"><b>${MONTHNAMES[m-1]} ${y}</b>${pill}</div><div class="calgrid">${g}</div></div>`;
+}
+function openDaySheet(iso){
+  const idxs=store.log.map((e,i)=>e.date===iso?i:-1).filter(i=>i>=0);
+  if(!idxs.length)return openAltForm(iso);
+  let h=`<div class="mhead"><div class="t">${fmtDate(iso)}</div><button class="icobtn" onclick="closeModal()">✕</button></div>`;
+  idxs.forEach(i=>h+=entryCardHTML(i,true));
+  $("#modal").innerHTML=h;$("#modalwrap").classList.add("on");
+}
+let altDate=null;
+function openAltForm(iso){
+  altDate=iso;
+  let h=`<div class="mhead"><div class="t">Alt workout · ${fmtDate(iso)}</div><button class="icobtn" onclick="closeModal()">✕</button></div>
+  <div class="banner-note">Nothing logged ${iso===todayISO()?"yet today":"on this day"}. An alt workout counts as an on-cycle day, and your cycle stays where it is.</div>
+  ${altNotesHTML("c",null)}${wwHTML("c",null)}
+  <button class="btn primary" onclick="saveAltForm()">Save alt workout</button>`;
+  $("#modal").innerHTML=h;$("#modalwrap").classList.add("on");
+  wwCalc("c");
+}
+function saveAltForm(){
+  const notes=val("caltnotes").trim(), ww=collectWW("c");
+  if(!notes&&!ww)return toast("Add a note or a work walk first");
+  addAlt(altDate,notes,ww);
+  commit();closeModal();renderAll();toast(`Alt workout saved for ${fmtDate(altDate)} ✓`);
 }
 function dayDetail(d){
   let h="";
@@ -587,22 +736,29 @@ function dayDetail(d){
   if(d.cardio&&d.cardio.mode)h+=`<div class="subtle" style="margin-top:6px">Cardio: <b>${esc(d.cardio.mode)}</b>${d.cardio.notes?" — "+esc(d.cardio.notes):""}</div>`;
   if(d.workWalk){const w=d.workWalk;h+=`<div class="subtle" style="margin-top:4px">Work walk: ${w.incline??18}% · ${w.vest||0} lb · ${w.time??"—"} min · ${w.dist??"—"} mi → ${w.dist!=null?Math.round(w.dist*5280*(w.incline==null?18:w.incline)/100)+" vert ft":"—"}</div>`;}
   d.entries.filter(e=>e.notes).forEach(e=>h+=`<div class="subtle" style="margin-top:4px">📝 ${esc(e.name)}: ${esc(e.notes)}</div>`);
+  if(d.alt&&d.notes)h+=`<div class="subtle" style="margin-top:4px">📝 ${esc(d.notes)}</div>`;
   return h;
 }
-function deleteLast(){
-  const d=store.log[store.log.length-1];
-  if(!confirm(`Delete the last entry (${d.type} on ${fmtDate(d.date)})? This can't be undone.`))return;
-  store.log.pop();commit();renderAll();toast("Entry deleted — cycle position rolled back");
+/* any day can be deleted; only removing the latest cycle day moves the cycle position back */
+function deleteEntry(idx){
+  const d=store.log[idx]; if(!d)return;
+  const isLatest=!d.alt&&lastSeqEntry()===d;
+  const what=d.alt?`the alt workout on ${fmtDate(d.date)}`:`${dayLabel(d.type)} (Cycle ${d.cycle} Day ${d.day}) on ${fmtDate(d.date)}`;
+  const tail=d.alt?"":isLatest?` Your cycle position rolls back to Cycle ${d.cycle} Day ${d.day}.`:` Later days keep their numbers, so Cycle ${d.cycle} will show Day ${d.day} as missing.`;
+  if(!confirm(`Delete ${what}?${tail} This can't be undone.`))return;
+  store.log.splice(idx,1);commit();closeModal();renderAll();
+  toast(d.alt?"Alt workout deleted":isLatest?"Entry deleted — cycle position rolled back":"Entry deleted");
 }
 /* edit modal */
 function openEdit(idx){
   const d=store.log[idx];
   const isRest=d.type==="REST";
-  editCtx={idx,rest:isRest,exIds:d.entries.map(e=>e.exId).filter(Boolean)};
-  let h=`<div class="mhead"><div class="t">Edit — ${d.inserted?"Inserted rest":esc(d.type)} · ${fmtDate(d.date)}</div>
+  editCtx={idx,rest:isRest,alt:!!d.alt,exIds:d.entries.map(e=>e.exId).filter(Boolean)};
+  let h=`<div class="mhead"><div class="t">Edit — ${esc(entryTitle(d))} · ${fmtDate(d.date)}</div>
   <button class="icobtn" onclick="closeModal()">✕</button></div>
   <div class="datewrap"><span class="lbl">Date</span><input type="date" id="edate" value="${d.date}"></div>`;
-  if(isRest){h+=restHTML("e",d);}
+  if(d.alt){h+=altNotesHTML("e",d.notes);}
+  else if(isRest){h+=restHTML("e",d);}
   else{
     editCtx.exIds=[];
     d.entries.forEach((e)=>{
@@ -623,6 +779,12 @@ function closeModal(){$("#modalwrap").classList.remove("on");}
 function saveEdit(){
   const d=store.log[editCtx.idx];
   const c=collectSession("e",editCtx);
+  if(editCtx.alt){
+    const nd=val("edate")||d.date;
+    d.notes=(c.notes||"").trim();d.workWalk=c.workWalk;
+    if(nd!==d.date){store.log.splice(editCtx.idx,1);d.date=nd;d.cycle=cycleAtDate(nd);insertChrono(d);}
+    commit();closeModal();renderAll();toast("Alt workout updated");return;
+  }
   d.date=val("edate")||d.date;
   if(!editCtx.rest){d.entries=c.entries;d.cardio=c.cardio;}
   else{d.restChecks=c.restChecks;}
@@ -702,7 +864,7 @@ function renderProgress(){
   <div class="ebar"><div style="width:${((v%EVEREST)/EVEREST*100).toFixed(1)}%"></div></div></div>`;
   h+=`<div class="everest" style="background:linear-gradient(135deg,#5c4500,#bf8f00)"><div style="font-size:12px;opacity:.85">BEER BUDGET — WORK WALKS ONLY</div>
   <div class="n">🍺 ${beers.toLocaleString()} beers</div>
-  <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · 160 kcal a beer · lifting doesn't count</div></div>`;
+  <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · ${(kcal/3500).toFixed(1)} lb fat offset · 160 kcal a beer</div></div>`;
   h+=cycleBurnHTML();
   h+=`<h2>Exercise charts</h2>
   <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
@@ -728,7 +890,7 @@ const DAYSEG={"Push":"#5b9bd5","Pull":"#5cb870","Legs":"#e0ac1a","REST":"#9aa3ad
 function dayLabel(t){return t==="REST"?"Rest":t;}
 function isoDayNum(iso){const [y,m,d]=iso.split("-").map(Number);return Date.UTC(y,m-1,d)/86400000;}
 function cycleCounterHTML(){
-  const nx=nextSeq(), completed=nx.cycle-1, doneIn=nx.day-1, cycleDays=completed*8+doneIn;
+  const nx=nextSeq(), completed=nx.cycle-1, doneIn=nx.day-1;
   const nextType=cycleDay(nx.day).type;
   const segs=store.cycle.map((d,i)=>{
     const day=i+1, cls=day<nx.day?"done":day===nx.day?"next":"todo";
@@ -736,16 +898,13 @@ function cycleCounterHTML(){
   }).join("");
   const labels=store.cycle.map((d,i)=>`<div class="${i+1===nx.day?"next":""}">${esc(dayLabel(d.type))}${i+1===nx.day?" ▲":""}</div>`).join("");
   let leak="";
-  const dates=store.log.map(e=>e.date).filter(Boolean).sort();
-  if(dates.length){
-    const start=dates[0], today=todayISO(), todayN=isoDayNum(today);
-    const throughN=dates[dates.length-1]>=today?todayN:todayN-1;
-    const elapsed=Math.max(cycleDays,1,throughN-isoDayNum(start)+1);
-    const leakage=elapsed-cycleDays, pct=Math.round(cycleDays/elapsed*100);
-    const sd=new Date(start+"T12:00");
+  const ls=leakStats();
+  if(ls){
+    const {elapsed,leakage}=ls, pct=Math.round(ls.onCycle/elapsed*100);
+    const sd=new Date(ls.start+"T12:00");
     const startTxt=sd.toLocaleDateString("en-US",sd.getFullYear()===new Date().getFullYear()?{month:"short",day:"numeric"}:{month:"short",day:"numeric",year:"numeric"});
     leak=`<div class="cb-leak"><div class="lk-num">${leakage}<span>leakage day${leakage===1?"":"s"}</span></div>
-    <div class="lk-detail">${elapsed} days since ${startTxt}<br>Ideal pace: ${Math.floor(elapsed/8)} cycles + ${elapsed%8} days · ${pct}% on-cycle</div></div>`;
+    <div class="lk-detail">${elapsed} days since ${startTxt} · ${ls.onCycle} logged${ls.altCount?` (${ls.altCount} alt)`:""}<br>Ideal pace: ${Math.floor(elapsed/8)} cycles + ${elapsed%8} days · ${pct}% on-cycle</div></div>`;
   }
   return `<div class="cyclebanner">
   <div class="cb-top"><div><div class="cb-eyebrow">CYCLES COMPLETED</div><div class="cb-big">${completed}<span>cycle${completed===1?"":"s"}</span></div></div>
@@ -1054,7 +1213,7 @@ function importJSON(){
   let s;try{s=JSON.parse(val("importBox"));}catch(e){return toast("That isn't valid JSON");}
   if(!s||!Array.isArray(s.log)||!Array.isArray(s.bank))return toast("Doesn't look like an LMSP backup");
   if(!confirm(`Replace ALL current data with this backup (${s.log.length} logged days)?`))return;
-  normalizeDayTypes(s);
+  migrateStore(s);
   store=s;commit();renderAll();toast("Backup restored ✓");
 }
 function importFile(inp){
@@ -1068,11 +1227,12 @@ function csvCell(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'
 function exportCSV(){
   const maxS=Math.max(3,...store.log.flatMap(d=>d.entries.map(e=>Math.max(e.sets?e.sets.length:0,e.setsR?e.setsR.length:0))));
   const idx=[...Array(maxS).keys()];
-  const rows=[["date","cycle","day","type","inserted","exercise","weight",...idx.map(s=>"s"+(s+1)),...idx.map(s=>"r"+(s+1)),"total","threshold","flag","notes","cardio_mode","cardio_notes"]];
+  const rows=[["date","cycle","day","type","exercise","weight",...idx.map(s=>"s"+(s+1)),...idx.map(s=>"r"+(s+1)),"total","threshold","flag","notes","cardio_mode","cardio_notes"]];
   store.log.forEach(d=>{
-    if(!d.entries.length)rows.push([d.date,d.cycle,d.day??"",d.type,d.inserted?1:0,"","",...idx.map(()=>""),...idx.map(()=>""),"","","","",d.cardio?d.cardio.mode:"",d.cardio?d.cardio.notes:""]);
+    const type=d.alt?"Alt":d.type;
+    if(!d.entries.length)rows.push([d.date,d.cycle,d.day??"",type,"","",...idx.map(()=>""),...idx.map(()=>""),"","","",d.alt?(d.notes||""):"",d.cardio?d.cardio.mode:"",d.cardio?d.cardio.notes:""]);
     d.entries.forEach((e,i)=>{
-      rows.push([d.date,d.cycle,d.day??"",d.type,d.inserted?1:0,e.name,e.wt??"",...idx.map(s=>e.sets&&e.sets[s]!=null?e.sets[s]:""),...idx.map(s=>e.setsR&&e.setsR[s]!=null?e.setsR[s]:""),e.total??"",e.thresh??"",e.flag?1:0,e.notes||"",i===0&&d.cardio?d.cardio.mode:"",i===0&&d.cardio?d.cardio.notes:""]);
+      rows.push([d.date,d.cycle,d.day??"",type,e.name,e.wt??"",...idx.map(s=>e.sets&&e.sets[s]!=null?e.sets[s]:""),...idx.map(s=>e.setsR&&e.setsR[s]!=null?e.setsR[s]:""),e.total??"",e.thresh??"",e.flag?1:0,e.notes||"",i===0&&d.cardio?d.cardio.mode:"",i===0&&d.cardio?d.cardio.notes:""]);
     });
   });
   const ok=download("lmsp-sessions-"+todayISO()+".csv",rows.map(r=>r.map(csvCell).join(",")).join("\n"),"text/csv");
