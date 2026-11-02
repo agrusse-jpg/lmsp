@@ -946,7 +946,7 @@ function burnData(){
     const prior=cycles.slice(0,i).filter(p=>p.n>0).slice(-3);
     x.ma=prior.length===3?prior.reduce((a,p)=>a+p.k,0)/3:null;
   });
-  return {cycles,curC,curK:by[curC]||0,curDays:store.log.filter(e=>e.cycle===curC).length,
+  return {cycles,curC,curK:by[curC]||0,curDays:store.log.filter(e=>e.cycle===curC&&!e.alt).length,
     total:cycles.reduce((a,x)=>a+x.k,0)};
 }
 function cycleBurnHTML(){
@@ -954,7 +954,7 @@ function cycleBurnHTML(){
   return `<div class="card chartcard burncard"><div class="burnhead"><div style="min-width:0"><h3>Work walk burn by cycle</h3>
   <div class="csub">ACSM kcal per 8-day cycle · <b style="color:${BURN_MA}">━ avg of prior 3 cycles</b></div></div>
   <div class="zoombtns"><button class="icobtn" onclick="burnZoomBy(1/1.6)" aria-label="Zoom out">−</button><button class="icobtn" onclick="burnZoomBy(1.6)" aria-label="Zoom in">+</button><button class="icobtn" style="width:auto;padding:0 8px;font-size:11px;font-weight:700" onclick="burnZoomTo(1)">All</button></div></div>
-  <div class="burnchip">Cycle ${d.curC} in progress — ${Math.round(d.curK).toLocaleString()} kcal after ${d.curDays} day${d.curDays===1?"":"s"}${cur&&cur.ma!=null?` · prior-3 avg ${Math.round(cur.ma).toLocaleString()}`:""}</div>
+  <div class="burnchip">Cycle ${d.curC} in progress — ${Math.round(d.curK).toLocaleString()} kcal after ${d.curDays} cycle day${d.curDays===1?"":"s"}${cur&&cur.ma!=null?` · prior-3 avg ${Math.round(cur.ma).toLocaleString()}`:""}</div>
   <div class="burnwrap"><svg id="burnAxis" class="burnaxis" width="34" height="196" aria-hidden="true"></svg><div id="burnScroll" class="burnscroll"><svg id="burnSvg" role="img" aria-label="Work walk calories per cycle"></svg></div></div>
   <div class="subtle" style="margin-top:4px">Pinch or tap + / − to zoom, swipe sideways to scroll · ${Math.round(d.total).toLocaleString()} kcal lifetime = ${Math.floor(d.total/160)} beers${d.cycles[0]&&d.cycles[0].n===0?" · C1 predates work-walk logging":""}</div></div>`;
 }
