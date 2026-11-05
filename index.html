@@ -365,9 +365,9 @@ function cycleAtDate(date){
   return last.day>=8?last.cycle+1:last.cycle;
 }
 function insertChrono(e){const i=store.log.findIndex(x=>x.date>e.date);if(i<0)store.log.push(e);else store.log.splice(i,0,e);}
-function addAlt(date,notes,workWalk){
+function addAlt(date,notes,workWalk,bw){
   const e={id:"s"+(++store.meta.seq)+"-"+Date.now(),date,cycle:cycleAtDate(date),day:null,type:"ALT",alt:true,
-    entries:[],cardio:null,workWalk,notes,restChecks:null};
+    entries:[],cardio:null,workWalk,notes,restChecks:null,bw:bw??null};
   insertChrono(e);
   return e;
 }
@@ -445,9 +445,45 @@ function cardioHTML(p,def,pre){
   <input class="notes" id="${p}cnotes" placeholder="Cardio notes (rounds, times, load…)" value="${esc(pre?pre.notes:"")}"></div>`;
 }
 function pickChip(el){el.parentElement.querySelectorAll(".cchip").forEach(c=>c.classList.remove("on"));el.classList.add("on");}
+/* ---- body weight: optional weigh-in on any logged day; walks use the latest weigh-in on or before their date ---- */
+function hasWeighIns(){return store.log.some(e=>typeof e.bw==="number");}
+function lastWeighIn(skip){
+  let best=null;
+  store.log.forEach(e=>{if(e!==skip&&typeof e.bw==="number"&&(!best||e.date>=best.date))best=e;});
+  return best;
+}
+function bwAt(date,skip){
+  let best=null;
+  store.log.forEach(e=>{if(e!==skip&&typeof e.bw==="number"&&e.date<=date&&(!best||e.date>=best.date))best=e;});
+  return best?best.bw:store.settings.bodyweight;
+}
+function walkKcal(w,bw){
+  if(!w||!w.time||!w.dist)return 0;
+  const inc=(w.incline==null?18:w.incline), sp=(w.dist/(w.time/60))*26.82, vo2=.1*sp+1.8*sp*(inc/100)+3.5;
+  return (vo2/3.5)*((bw+(w.vest||0))/2.205)*(w.time/60);
+}
+/* bodyweight for a form's live calorie readout: the typed weigh-in, else the latest one on or before the form's date */
+function formBW(p){
+  const typed=num(val(p+"bw"));
+  if(typed>0)return typed;
+  if(p==="e"&&editCtx)return bwAt(val("edate")||todayISO(),store.log[editCtx.idx]);
+  return bwAt(p==="c"?altDate:(val("ndate")||todayISO()));
+}
+function bwHTML(p,pre,skip){
+  const last=lastWeighIn(skip);
+  let info="Morning weigh-in · feeds the work-walk calorie math";
+  if(p==="n"){
+    const c=nextSeq().cycle, ws=store.log.filter(e=>e.cycle===c&&typeof e.bw==="number");
+    if(ws.length)info=`Cycle ${c} average so far: ${(ws.reduce((a,e)=>a+e.bw,0)/ws.length).toFixed(1)} lb (${ws.length} weigh-in${ws.length===1?"":"s"})`;
+  }
+  return `<div class="card"><div class="exname">Body weight <span class="chip">optional</span></div>
+  <div class="rule">${info}</div>
+  <div style="display:flex;align-items:center;gap:10px"><input class="tinput" style="width:110px;font-size:16px;padding:9px" inputmode="decimal" id="${p}bw" value="${pre!=null?pre:""}" placeholder="lb" oninput="wwCalc('${p}')">
+  <span class="subtle">lb${last?` · last: ${last.bw} (${fmtDate(last.date)})`:""}</span></div></div>`;
+}
 function wwHTML(p,pre){
   return `<div class="card"><div class="exname">Work Walk <span class="chip">one entry per day</span></div>
-  <div class="rule">Zone 2 · ACSM speed-aware calories · bodyweight ${store.settings.bodyweight} lb (change in More)</div>
+  <div class="rule">Zone 2 · ACSM speed-aware calories · bodyweight ${hasWeighIns()?"from your latest weigh-in":store.settings.bodyweight+" lb (change in More)"}</div>
   <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
     <div><label>Incline %</label><input inputmode="decimal" id="${p}wwi" value="${pre?pre.incline??18:18}" oninput="wwCalc('${p}')"></div>
     <div><label>Vest lb</label><input inputmode="decimal" id="${p}wwv" value="${pre?pre.vest??0:0}" oninput="wwCalc('${p}')"></div>
@@ -464,7 +500,7 @@ function wwCalc(p){
   const i=num(val(p+"wwi")),v=num(val(p+"wwv"))||0,t=num(val(p+"wwt")),d=num(val(p+"wwd"));
   let vert="—",cal="—",extra=0;
   if(d!=null&&i!=null){extra=d*5280*i/100;vert=Math.round(extra).toLocaleString();}
-  if(t!=null&&d!=null&&t>0){const sp=(d/(t/60))*26.82,vo2=.1*sp+1.8*sp*(i/100)+3.5;cal=Math.round((vo2/3.5)*((store.settings.bodyweight+v)/2.205)*(t/60));}
+  if(t!=null&&d!=null&&t>0)cal=Math.round(walkKcal({incline:i,vest:v,time:t,dist:d},formBW(p)));
   const ve=document.getElementById(p+"wwvert"),ce=document.getElementById(p+"wwcal"),ev=document.getElementById(p+"wwev");
   if(ve)ve.textContent=vert; if(ce)ce.textContent=cal;
   if(ev)ev.innerHTML=everestLine(extra);
@@ -505,8 +541,8 @@ function collectSession(p,ctx){
   const workWalk=collectWW(p);
   let restChecks=null;
   if(ctx.rest){restChecks=[];document.querySelectorAll(`#${p===("n")?"scr-today":"modal"} .rchk.done`).forEach(el=>restChecks.push(parseInt(el.dataset.ri)));}
-  const an=document.getElementById(p+"altnotes");
-  return {entries,cardio,workWalk,restChecks,notes:an?an.value:null};
+  const an=document.getElementById(p+"altnotes"), bw=num(val(p+"bw"));
+  return {entries,cardio,workWalk,restChecks,notes:an?an.value:null,bw:bw>0?Math.round(bw*10)/10:null};
 }
 function collectWW(p){
   const t=num(val(p+"wwt")),d=num(val(p+"wwd"));
@@ -549,6 +585,7 @@ function renderToday(){
   </div>`;
   if(draft)h+=`<div class="banner-note" style="background:var(--flag-bg);border-color:#b5e2c4;color:#1d7a3c">⏳ <b>${isAlt?"Alt workout":"Session"} in progress</b> — everything below autosaves as you type. Hit Save when the day is done.</div>`;
   h+=`<div class="datewrap"><span class="lbl">${isAlt?"Date":"Session date"}</span><input type="date" id="ndate" value="${draft&&draft.date?draft.date:todayISO()}"><span class="lbl">${isAlt?"counts as an on-cycle day":"future stays derived from the cycle"}</span></div>`;
+  h+=bwHTML("n",draft?draft.bw:null);
   if(!isRest&&!isAlt){
     const due=newCtx.exIds.map(id=>({b:bankById(id),l:lastSession(id)})).filter(x=>x.b&&x.b.rule!=="display"&&x.l&&x.l.e.flag);
     if(due.length)h+=`<div class="card" style="border-left:5px solid var(--flag)"><div class="exname" style="color:#1d7a3c">⬆ Increase weight today</div>
@@ -570,7 +607,7 @@ function draftSave(){
   const c=collectSession("n",newCtx);
   store.draft={alt:newCtx.alt,type:newCtx.type,exIds:newCtx.exIds.slice(),
     date:val("ndate")||todayISO(),started:(store.draft&&store.draft.started)||new Date().toISOString(),
-    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks,notes:c.notes};
+    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks,notes:c.notes,bw:c.bw};
   clearTimeout(draftTimer);
   draftTimer=setTimeout(()=>{
     persist();
@@ -597,7 +634,7 @@ function saveToday(){
   if(newCtx.alt){
     const notes=(c.notes||"").trim();
     if(!notes&&!c.workWalk)return toast("Add a note or a work walk first");
-    addAlt(date,notes,c.workWalk);
+    addAlt(date,notes,c.workWalk,c.bw);
     store.draft=null;todayMode="scheduled";
     commit();renderAll();
     const nx=nextSeq();
@@ -606,7 +643,7 @@ function saveToday(){
   }
   const entry={id:"s"+(++store.meta.seq)+"-"+Date.now(),date,
     cycle:newCtx.seq.cycle,day:newCtx.seq.day,type:newCtx.type,
-    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks};
+    entries:c.entries,cardio:c.cardio,workWalk:c.workWalk,restChecks:c.restChecks,bw:c.bw};
   store.log.push(entry);
   store.draft=null;
   todayMode="scheduled";
@@ -711,15 +748,15 @@ function openAltForm(iso){
   altDate=iso;
   let h=`<div class="mhead"><div class="t">Alt workout · ${fmtDate(iso)}</div><button class="icobtn" onclick="closeModal()">✕</button></div>
   <div class="banner-note">Nothing logged ${iso===todayISO()?"yet today":"on this day"}. An alt workout counts as an on-cycle day, and your cycle stays where it is.</div>
-  ${altNotesHTML("c",null)}${wwHTML("c",null)}
+  ${bwHTML("c",null)}${altNotesHTML("c",null)}${wwHTML("c",null)}
   <button class="btn primary" onclick="saveAltForm()">Save alt workout</button>`;
   $("#modal").innerHTML=h;$("#modalwrap").classList.add("on");
   wwCalc("c");
 }
 function saveAltForm(){
-  const notes=val("caltnotes").trim(), ww=collectWW("c");
+  const notes=val("caltnotes").trim(), ww=collectWW("c"), bw=num(val("cbw"));
   if(!notes&&!ww)return toast("Add a note or a work walk first");
-  addAlt(altDate,notes,ww);
+  addAlt(altDate,notes,ww,bw>0?Math.round(bw*10)/10:null);
   commit();closeModal();renderAll();toast(`Alt workout saved for ${fmtDate(altDate)} ✓`);
 }
 function dayDetail(d){
@@ -737,6 +774,7 @@ function dayDetail(d){
   if(d.workWalk){const w=d.workWalk;h+=`<div class="subtle" style="margin-top:4px">Work walk: ${w.incline??18}% · ${w.vest||0} lb · ${w.time??"—"} min · ${w.dist??"—"} mi → ${w.dist!=null?Math.round(w.dist*5280*(w.incline==null?18:w.incline)/100)+" vert ft":"—"}</div>`;}
   d.entries.filter(e=>e.notes).forEach(e=>h+=`<div class="subtle" style="margin-top:4px">📝 ${esc(e.name)}: ${esc(e.notes)}</div>`);
   if(d.alt&&d.notes)h+=`<div class="subtle" style="margin-top:4px">📝 ${esc(d.notes)}</div>`;
+  if(typeof d.bw==="number")h+=`<div class="subtle" style="margin-top:4px">⚖ Body weight: <b>${d.bw} lb</b></div>`;
   return h;
 }
 /* any day can be deleted; only removing the latest cycle day moves the cycle position back */
@@ -757,6 +795,7 @@ function openEdit(idx){
   let h=`<div class="mhead"><div class="t">Edit — ${esc(entryTitle(d))} · ${fmtDate(d.date)}</div>
   <button class="icobtn" onclick="closeModal()">✕</button></div>
   <div class="datewrap"><span class="lbl">Date</span><input type="date" id="edate" value="${d.date}"></div>`;
+  h+=bwHTML("e",typeof d.bw==="number"?d.bw:null,d);
   if(d.alt){h+=altNotesHTML("e",d.notes);}
   else if(isRest){h+=restHTML("e",d);}
   else{
@@ -781,14 +820,14 @@ function saveEdit(){
   const c=collectSession("e",editCtx);
   if(editCtx.alt){
     const nd=val("edate")||d.date;
-    d.notes=(c.notes||"").trim();d.workWalk=c.workWalk;
+    d.notes=(c.notes||"").trim();d.workWalk=c.workWalk;d.bw=c.bw;
     if(nd!==d.date){store.log.splice(editCtx.idx,1);d.date=nd;d.cycle=cycleAtDate(nd);insertChrono(d);}
     commit();closeModal();renderAll();toast("Alt workout updated");return;
   }
   d.date=val("edate")||d.date;
   if(!editCtx.rest){d.entries=c.entries;d.cardio=c.cardio;}
   else{d.restChecks=c.restChecks;}
-  d.workWalk=c.workWalk;
+  d.workWalk=c.workWalk;d.bw=c.bw;
   commit();closeModal();renderAll();toast("Entry updated");
 }
 
@@ -849,9 +888,7 @@ function chartHTML(b){
 function cumCal(){
   return store.log.reduce((s,e)=>{
     const w=e.workWalk; if(!w||!w.time||!w.dist)return s;
-    const inc=(w.incline==null?18:w.incline);
-    const sp=(w.dist/(w.time/60))*26.82, vo2=.1*sp+1.8*sp*(inc/100)+3.5;
-    return s+(vo2/3.5)*((store.settings.bodyweight+(w.vest||0))/2.205)*(w.time/60);
+    return s+walkKcal(w,bwAt(e.date));
   },0);
 }
 function renderProgress(){
@@ -865,7 +902,7 @@ function renderProgress(){
   h+=`<div class="everest" style="background:linear-gradient(135deg,#5c4500,#bf8f00)"><div style="font-size:12px;opacity:.85">BEER BUDGET — WORK WALKS ONLY</div>
   <div class="n">🍺 ${beers.toLocaleString()} beers</div>
   <div style="font-size:13px">${Math.round(kcal).toLocaleString()} kcal banked · ${(kcal/3500).toFixed(1)} lb fat offset · 160 kcal a beer</div></div>`;
-  h+=cycleBurnHTML();
+  h+=cycleBurnHTML()+cycleWeightHTML();
   h+=`<h2>Exercise charts</h2>
   <div class="metricrow">${[["volume","Volume"],["firstset","First set"],["weight","Weight"]].map(([k,l])=>`<div class="mchip ${chartMetric===k?"on":""}" onclick="setMetric('${k}')">${l}</div>`).join("")}</div>`;
   if(cyc.length){
@@ -882,8 +919,8 @@ function renderProgress(){
   h+=`</div>`;
   $("#scr-progress").innerHTML=h;
   bindChartDrag();
-  drawBurn();
-  bindBurnZoom();
+  drawBurn();drawWeight();
+  bindZoom("burn");bindZoom("wt");
 }
 /* ---- cycle counter banner ---- */
 const DAYSEG={"Push":"#5b9bd5","Pull":"#5cb870","Legs":"#e0ac1a","REST":"#9aa3ad"};
@@ -929,16 +966,15 @@ function orderedChartCards(exclude){
   });
 }
 /* ---- work walk burn by cycle: drawn at true pixel size so text never shrinks; zoom widens it inside a scroll strip ---- */
-let burnZoom=1;
+/* pinch / button zoom shared by the by-cycle bar charts */
+const ZOOM={burn:{z:1,sc:"burnScroll",svg:"burnSvg",draw:k=>drawBurn(k)},wt:{z:1,sc:"wtScroll",svg:"wtSvg",draw:k=>drawWeight(k)}};
 const BURN_H=196, BURN_TOP=24, BURN_BOT=166, BURN_MA="#1f4e8c";
 function burnData(){
   const curC=nextSeq().cycle;
   const by={}, walks={};
   store.log.forEach(e=>{
     const w=e.workWalk; if(!w||!w.time||!w.dist)return;
-    const inc=(w.incline==null?18:w.incline);
-    const sp=(w.dist/(w.time/60))*26.82, vo2=.1*sp+1.8*sp*(inc/100)+3.5;
-    const k=(vo2/3.5)*((store.settings.bodyweight+(w.vest||0))/2.205)*(w.time/60);
+    const k=walkKcal(w,bwAt(e.date));
     by[e.cycle]=(by[e.cycle]||0)+k; walks[e.cycle]=(walks[e.cycle]||0)+1;
   });
   const cycles=[];for(let c=1;c<=curC;c++)cycles.push({c,k:by[c]||0,n:walks[c]||0});
@@ -953,7 +989,7 @@ function cycleBurnHTML(){
   const d=burnData(), cur=d.cycles[d.cycles.length-1];
   return `<div class="card chartcard burncard"><div class="burnhead"><div style="min-width:0"><h3>Work walk burn by cycle</h3>
   <div class="csub">ACSM kcal per 8-day cycle · <b style="color:${BURN_MA}">━ avg of prior 3 cycles</b></div></div>
-  <div class="zoombtns"><button class="icobtn" onclick="burnZoomBy(1/1.6)" aria-label="Zoom out">−</button><button class="icobtn" onclick="burnZoomBy(1.6)" aria-label="Zoom in">+</button><button class="icobtn" style="width:auto;padding:0 8px;font-size:11px;font-weight:700" onclick="burnZoomTo(1)">All</button></div></div>
+  ${zoomBtns("burn")}</div>
   <div class="burnchip">Cycle ${d.curC} in progress — ${Math.round(d.curK).toLocaleString()} kcal after ${d.curDays} cycle day${d.curDays===1?"":"s"}${cur&&cur.ma!=null?` · prior-3 avg ${Math.round(cur.ma).toLocaleString()}`:""}</div>
   <div class="burnwrap"><svg id="burnAxis" class="burnaxis" width="34" height="196" aria-hidden="true"></svg><div id="burnScroll" class="burnscroll"><svg id="burnSvg" role="img" aria-label="Work walk calories per cycle"></svg></div></div>
   <div class="subtle" style="margin-top:4px">Pinch or tap + / − to zoom, swipe sideways to scroll · ${Math.round(d.total).toLocaleString()} kcal lifetime = ${Math.floor(d.total/160)} beers${d.cycles[0]&&d.cycles[0].n===0?" · C1 predates work-walk logging":""}</div></div>`;
@@ -964,9 +1000,9 @@ function drawBurn(keep){
   const d=burnData(), N=d.cycles.length;
   let cw=sc.clientWidth;
   if(!cw)cw=Math.max(200,Math.min(window.innerWidth,640)-24-30-34);
-  const maxZ=Math.max(1,N*52/cw);
-  burnZoom=Math.min(Math.max(1,burnZoom),maxZ);
-  const W=Math.round(cw*burnZoom), slot=W/N, barW=Math.min(30,slot*0.68);
+  const Z=ZOOM.burn;
+  Z.z=Math.min(Math.max(1,Z.z),Math.max(1,N*52/cw));
+  const W=Math.round(cw*Z.z), slot=W/N, barW=Math.min(30,slot*0.68);
   const mx=Math.max(500,...d.cycles.map(x=>Math.max(x.k,x.ma||0)))*1.1;
   const y=v=>BURN_BOT-(v/mx)*(BURN_BOT-BURN_TOP);
   const halo='paint-order="stroke" stroke="var(--card)" stroke-width="3" stroke-linejoin="round"';
@@ -1004,32 +1040,100 @@ function drawBurn(keep){
   if(keep)sc.scrollLeft=keep.ratio*W-keep.px;
   else sc.scrollLeft=W;
 }
-function burnAnchor(px){
-  const sc=document.getElementById("burnScroll"), svg=document.getElementById("burnSvg");
+function zoomBtns(key){
+  return `<div class="zoombtns"><button class="icobtn" onclick="zoomBy('${key}',1/1.6)" aria-label="Zoom out">−</button><button class="icobtn" onclick="zoomBy('${key}',1.6)" aria-label="Zoom in">+</button><button class="icobtn" style="width:auto;padding:0 8px;font-size:11px;font-weight:700" onclick="zoomTo('${key}',1)">All</button></div>`;
+}
+function zoomAnchor(key,px){
+  const Z=ZOOM[key], sc=document.getElementById(Z.sc), svg=document.getElementById(Z.svg);
   const W=parseFloat(svg.getAttribute("width"))||sc.clientWidth;
   if(px==null)px=sc.clientWidth/2;
   return {ratio:(sc.scrollLeft+px)/W,px};
 }
-function burnZoomBy(f){if(!document.getElementById("burnScroll"))return;const k=burnAnchor();burnZoom*=f;drawBurn(k);}
-function burnZoomTo(z){burnZoom=z;drawBurn();}
-function bindBurnZoom(){
-  const sc=document.getElementById("burnScroll"); if(!sc)return;
+function zoomBy(key,f){const Z=ZOOM[key];if(!document.getElementById(Z.sc))return;const k=zoomAnchor(key);Z.z*=f;Z.draw(k);}
+function zoomTo(key,z){ZOOM[key].z=z;ZOOM[key].draw();}
+function bindZoom(key){
+  const Z=ZOOM[key], sc=document.getElementById(Z.sc); if(!sc)return;
   let p=null;
   const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
   const mid=t=>(t[0].clientX+t[1].clientX)/2-sc.getBoundingClientRect().left;
   sc.addEventListener("touchstart",e=>{
-    if(e.touches.length===2){e.preventDefault();p={d0:dist(e.touches)||1,z0:burnZoom,k:burnAnchor(mid(e.touches))};}
+    if(e.touches.length===2){e.preventDefault();p={d0:dist(e.touches)||1,z0:Z.z,k:zoomAnchor(key,mid(e.touches))};}
   },{passive:false});
   sc.addEventListener("touchmove",e=>{
-    if(p&&e.touches.length===2){e.preventDefault();burnZoom=p.z0*dist(e.touches)/p.d0;drawBurn(p.k);}
+    if(p&&e.touches.length===2){e.preventDefault();Z.z=p.z0*dist(e.touches)/p.d0;Z.draw(p.k);}
   },{passive:false});
   sc.addEventListener("touchend",e=>{if(e.touches.length<2)p=null;});
   sc.addEventListener("wheel",e=>{
     if(!e.ctrlKey)return;
     e.preventDefault();
-    const k=burnAnchor(e.clientX-sc.getBoundingClientRect().left);
-    burnZoom*=Math.exp(-e.deltaY*0.01);drawBurn(k);
+    const k=zoomAnchor(key,e.clientX-sc.getBoundingClientRect().left);
+    Z.z*=Math.exp(-e.deltaY*0.01);Z.draw(k);
   },{passive:false});
+}
+/* ---- body weight by cycle: average of every weigh-in per cycle, from WT_START; y-axis spans 2 lb either side of the averages ---- */
+const WT_START=21, WT_COL="#2a9d8f", WT_DARK="#1f7a74", WT_BG="#e3f2f1";
+function weightData(){
+  const curC=nextSeq().cycle, cycles=[];
+  for(let c=WT_START;c<=curC;c++){
+    const ws=store.log.filter(e=>e.cycle===c&&typeof e.bw==="number").map(e=>e.bw);
+    cycles.push({c,n:ws.length,avg:ws.length?ws.reduce((a,v)=>a+v,0)/ws.length:null});
+  }
+  return {cycles,curC};
+}
+function cycleWeightHTML(){
+  const d=weightData(), withData=d.cycles.filter(x=>x.n);
+  let body;
+  if(d.curC<WT_START)body=`<div class="subtle" style="margin-top:6px">Starts at Cycle ${WT_START} — you're on Cycle ${d.curC}. Weigh-ins logged before then are saved but not charted.</div>`;
+  else if(!withData.length)body=`<div class="subtle" style="margin-top:6px">No weigh-ins yet. Enter your body weight on the Today screen and the first bar appears.</div>`;
+  else{
+    const cur=d.cycles[d.cycles.length-1], prev=[...d.cycles].reverse().find(x=>x.n&&x.c<cur.c);
+    const chip=cur.n?`Cycle ${cur.c} in progress — ${cur.avg.toFixed(1)} lb avg from ${cur.n} weigh-in${cur.n===1?"":"s"}${prev?` · ${cur.avg-prev.avg>=0?"+":"−"}${Math.abs(cur.avg-prev.avg).toFixed(1)} vs C${prev.c}`:""}`:`Cycle ${cur.c} in progress — no weigh-ins yet`;
+    const first=withData[0], last=withData[withData.length-1];
+    body=`<div class="burnchip" style="background:${WT_BG};border-color:${WT_DARK};color:#155d58">${chip}</div>
+    <div class="burnwrap"><svg id="wtAxis" class="burnaxis" width="34" height="196" aria-hidden="true"></svg><div id="wtScroll" class="burnscroll"><svg id="wtSvg" role="img" aria-label="Average body weight per cycle"></svg></div></div>
+    <div class="subtle" style="margin-top:4px">Pinch or tap + / − to zoom, swipe sideways to scroll${withData.length>1?` · ${last.avg-first.avg>=0?"+":"−"}${Math.abs(last.avg-first.avg).toFixed(1)} lb since C${first.c}`:""}</div>`;
+  }
+  return `<div class="card chartcard burncard"><div class="burnhead"><div style="min-width:0"><h3>Body weight by cycle</h3>
+  <div class="csub">Average of every weigh-in logged in each cycle · from C${WT_START}</div></div>
+  ${withData.length&&d.curC>=WT_START?zoomBtns("wt"):""}</div>${body}</div>`;
+}
+function drawWeight(keep){
+  const sc=document.getElementById("wtScroll"), svg=document.getElementById("wtSvg"), axis=document.getElementById("wtAxis");
+  if(!sc||!svg)return;
+  const d=weightData(), N=d.cycles.length, vals=d.cycles.filter(x=>x.n).map(x=>x.avg);
+  if(!N||!vals.length)return;
+  let cw=sc.clientWidth;
+  if(!cw)cw=Math.max(200,Math.min(window.innerWidth,640)-24-30-34);
+  const Z=ZOOM.wt;
+  Z.z=Math.min(Math.max(1,Z.z),Math.max(1,N*52/cw));
+  const W=Math.round(cw*Z.z), slot=W/N, barW=Math.min(30,slot*0.68);
+  const lo=Math.min(...vals)-2, hi=Math.max(...vals)+2;
+  const y=v=>BURN_BOT-(v-lo)/(hi-lo)*(BURN_BOT-BURN_TOP);
+  const halo='paint-order="stroke" stroke="var(--card)" stroke-width="3" stroke-linejoin="round"';
+  const step=[0.5,1,2,5,10,20].find(s=>(hi-lo)/s<=5)||50;
+  let ax="", g="";
+  for(let t=Math.ceil(lo/step)*step;t<=hi+1e-9;t+=step){const yy=y(t);
+    g+=`<line x1="0" y1="${yy.toFixed(1)}" x2="${W}" y2="${yy.toFixed(1)}" stroke="var(--line)"/>`;
+    ax+=`<text x="30" y="${(yy+3.5).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end">${step<1?t.toFixed(1):Math.round(t)}</text>`;}
+  g+=`<line x1="0" y1="${BURN_BOT}" x2="${W}" y2="${BURN_BOT}" stroke="var(--muted)"/>`;
+  const every=Math.max(1,Math.ceil(30/slot));
+  d.cycles.forEach((x,i)=>{
+    const cx=i*slot+slot/2, bx=cx-barW/2, isCur=x.c===d.curC;
+    if(x.n){
+      const bh=Math.max(2,BURN_BOT-y(x.avg));
+      if(isCur)g+=`<rect x="${bx.toFixed(1)}" y="${(BURN_BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${WT_BG}" stroke="${WT_DARK}" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+      else g+=`<rect x="${bx.toFixed(1)}" y="${(BURN_BOT-bh).toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="${WT_COL}"/>`;
+      if(slot>=30)g+=`<text x="${cx.toFixed(1)}" y="${(BURN_BOT-bh-5).toFixed(1)}" font-size="10" fill="${isCur?WT_DARK:"var(--ink)"}" font-weight="700" text-anchor="middle" ${halo}>${x.avg.toFixed(1)}</text>`;
+    }
+    const edge=isCur&&cx+24>W, lx=edge?(W-2).toFixed(1):cx.toFixed(1), la=edge?"end":"middle";
+    if((i%every===0&&N-1-i>=every)||isCur)g+=`<text x="${lx}" y="${BURN_BOT+15}" font-size="10" fill="${isCur?WT_DARK:"var(--muted)"}"${isCur?' font-weight="700"':""} text-anchor="${la}">C${x.c}</text>`;
+    if(isCur)g+=`<text x="${lx}" y="${BURN_BOT+27}" font-size="9" fill="${WT_DARK}" text-anchor="${la}">building</text>`;
+  });
+  svg.setAttribute("width",W);svg.setAttribute("height",BURN_H);svg.setAttribute("viewBox",`0 0 ${W} ${BURN_H}`);
+  svg.innerHTML=g;
+  if(axis){axis.setAttribute("width",34);axis.setAttribute("height",BURN_H);axis.setAttribute("viewBox",`0 0 34 ${BURN_H}`);axis.innerHTML=ax;}
+  if(keep)sc.scrollLeft=keep.ratio*W-keep.px;
+  else sc.scrollLeft=W;
 }
 /* press-and-hold drag to reorder chart cards */
 let chartDrag=null;
@@ -1163,7 +1267,7 @@ function renderMore(){
   <div class="d">${storageOK?"Every change persists automatically in this browser.":"Sessions will be lost on refresh — export after logging, or open the app file in Safari/Chrome."}</div></div></div>
   <div class="setrow"><div><div class="k">Last backup export</div><div class="d">${m.lastExport?fmtDate(m.lastExport.slice(0,10)):"Never — do one now"}</div></div></div></div>`;
   h+=`<div class="card"><div class="exname">Settings</div>
-  <div class="setrow"><div><div class="k">Bodyweight (lb)</div><div class="d">Used in the ACSM calorie calc</div></div>
+  <div class="setrow"><div><div class="k">Bodyweight (lb)</div><div class="d">ACSM calorie calc uses your latest weigh-in on or before each walk; this value covers walks before your first weigh-in</div></div>
   <input class="tinput" value="${store.settings.bodyweight}" inputmode="decimal" onchange="setBW(this.value)"></div></div>`;
   h+=`<div class="card"><div class="exname">Backup &amp; export</div>
   <div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" onclick="exportJSON()">⬇ Backup (JSON)</button>
@@ -1227,25 +1331,24 @@ function csvCell(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'
 function exportCSV(){
   const maxS=Math.max(3,...store.log.flatMap(d=>d.entries.map(e=>Math.max(e.sets?e.sets.length:0,e.setsR?e.setsR.length:0))));
   const idx=[...Array(maxS).keys()];
-  const rows=[["date","cycle","day","type","exercise","weight",...idx.map(s=>"s"+(s+1)),...idx.map(s=>"r"+(s+1)),"total","threshold","flag","notes","cardio_mode","cardio_notes"]];
+  const rows=[["date","cycle","day","type","exercise","weight",...idx.map(s=>"s"+(s+1)),...idx.map(s=>"r"+(s+1)),"total","threshold","flag","notes","cardio_mode","cardio_notes","bodyweight"]];
   store.log.forEach(d=>{
     const type=d.alt?"Alt":d.type;
-    if(!d.entries.length)rows.push([d.date,d.cycle,d.day??"",type,"","",...idx.map(()=>""),...idx.map(()=>""),"","","",d.alt?(d.notes||""):"",d.cardio?d.cardio.mode:"",d.cardio?d.cardio.notes:""]);
+    if(!d.entries.length)rows.push([d.date,d.cycle,d.day??"",type,"","",...idx.map(()=>""),...idx.map(()=>""),"","","",d.alt?(d.notes||""):"",d.cardio?d.cardio.mode:"",d.cardio?d.cardio.notes:"",d.bw??""]);
     d.entries.forEach((e,i)=>{
-      rows.push([d.date,d.cycle,d.day??"",type,e.name,e.wt??"",...idx.map(s=>e.sets&&e.sets[s]!=null?e.sets[s]:""),...idx.map(s=>e.setsR&&e.setsR[s]!=null?e.setsR[s]:""),e.total??"",e.thresh??"",e.flag?1:0,e.notes||"",i===0&&d.cardio?d.cardio.mode:"",i===0&&d.cardio?d.cardio.notes:""]);
+      rows.push([d.date,d.cycle,d.day??"",type,e.name,e.wt??"",...idx.map(s=>e.sets&&e.sets[s]!=null?e.sets[s]:""),...idx.map(s=>e.setsR&&e.setsR[s]!=null?e.setsR[s]:""),e.total??"",e.thresh??"",e.flag?1:0,e.notes||"",i===0&&d.cardio?d.cardio.mode:"",i===0&&d.cardio?d.cardio.notes:"",i===0?(d.bw??""):""]);
     });
   });
   const ok=download("lmsp-sessions-"+todayISO()+".csv",rows.map(r=>r.map(csvCell).join(",")).join("\n"),"text/csv");
   toast(ok?"Sessions CSV downloaded":"Download blocked — use JSON copy instead");
 }
 function exportWalksCSV(){
-  const rows=[["date","incline_pct","vest_lb","time_min","dist_mi","vertical_ft","calories"]];
+  const rows=[["date","incline_pct","vest_lb","time_min","dist_mi","vertical_ft","bodyweight_lb","calories"]];
   store.log.forEach(d=>{
     if(!d.workWalk)return;const w=d.workWalk;
     const vert=w.dist!=null?Math.round(w.dist*5280*(w.incline==null?18:w.incline)/100):"";
-    let cal="";
-    if(w.time&&w.dist){const sp=(w.dist/(w.time/60))*26.82,vo2=.1*sp+1.8*sp*((w.incline==null?18:w.incline)/100)+3.5;cal=Math.round((vo2/3.5)*((store.settings.bodyweight+(w.vest||0))/2.205)*(w.time/60));}
-    rows.push([d.date,w.incline??"",w.vest??"",w.time??"",w.dist??"",vert,cal]);
+    const bw=bwAt(d.date), cal=w.time&&w.dist?Math.round(walkKcal(w,bw)):"";
+    rows.push([d.date,w.incline??"",w.vest??"",w.time??"",w.dist??"",vert,bw,cal]);
   });
   const ok=download("lmsp-workwalks-"+todayISO()+".csv",rows.map(r=>r.map(csvCell).join(",")).join("\n"),"text/csv");
   toast(ok?"Work-walk CSV downloaded":"Download blocked — use JSON copy instead");
@@ -1267,7 +1370,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
   $("#scr-"+b.dataset.s).classList.add("on");window.scrollTo(0,0);
-  if(b.dataset.s==="progress")drawBurn();
+  if(b.dataset.s==="progress"){drawBurn();drawWeight();}
 });
 $("#modalwrap").addEventListener("click",e=>{if(e.target.id==="modalwrap")closeModal();});
 /* Today screen autosaves a draft on every interaction */
@@ -1277,7 +1380,7 @@ $("#scr-today").addEventListener("click",e=>{if(e.target.closest(".cchip,.rchk")
 loadStore();
 persist();
 renderAll();
-window.addEventListener("resize",()=>{if($("#scr-progress").classList.contains("on"))drawBurn();});
+window.addEventListener("resize",()=>{if($("#scr-progress").classList.contains("on")){drawBurn();drawWeight();}});
 </script>
 </body>
 </html>
